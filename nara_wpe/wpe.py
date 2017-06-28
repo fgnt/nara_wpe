@@ -1,6 +1,20 @@
 import numpy as np
 
 
+def segment_axis(x, length, shift, axis=-1):
+    axis = axis % x.ndim
+
+    shape = list(x.shape)
+    del shape[axis]
+    shape.insert(axis, (x.shape[axis] + shift - length) // shift)
+    shape.insert(axis + 1, length)
+
+    strides = list(x.strides)
+    strides.insert(axis, shift * strides[axis])
+
+    return np.lib.stride_tricks.as_strided(x, strides=strides, shape=shape)
+
+
 def print_matrix(matrix):
     max_length = max([len(str(x)) for x in matrix.ravel()])
     for row in matrix:
@@ -21,12 +35,13 @@ def wpe(Y, K=10, delay=3, iterations=3):
     Returns:
 
     """
-    D, T = Y.shape
+    # D, T = Y.shape
     X = np.copy(Y)
     for iteration in range(iterations):
         inverse_power = get_power_inverse(X)
-        correlation_matrix, correlation_vector = get_correlations_v2(Y, inverse_power, K, delay)
-        filter_matrix_conjugate = get_filter_matrix_conjugate(correlation_matrix, correlation_vector, K, D)
+        # correlation_matrix, correlation_vector = get_correlations_v2(Y, inverse_power, K, delay)
+        # filter_matrix_conjugate = get_filter_matrix_conjugate(correlation_matrix, correlation_vector, K, D)
+        filter_matrix_conjugate = get_filter_matrix_conjugate_v3(Y, inverse_power, K, delay)
         X = perform_filter_operation_v4(Y, filter_matrix_conjugate, K, delay)
     return X
 
@@ -68,6 +83,14 @@ def get_Psi_narrow(Y, t, K):
     return Y[:, selector]
 
 
+def get_Psi_narrow_v5(Y, t, K):
+    assert t - K + 1 >= 0
+    view = np.copy(segment_axis(np.copy(Y), K, 1, axis=-1))
+    # selector = slice(t, t - K if t - K >= 0 else None, -1)
+    # return Y[:, selector]
+    return view[:, t - K + 1, ::-1]
+
+
 def get_correlations_narrow(Y, inverse_power, K, delay):
     D, T = Y.shape
 
@@ -77,6 +100,25 @@ def get_correlations_narrow(Y, inverse_power, K, delay):
     # TODO: Faster with nt.utils.numpy_utils.segment_axis
     for t in range(delay + K - 1, T):
         Psi = get_Psi_narrow(Y, t - delay, K)
+        Psi_conj_norm = inverse_power[t] * Psi.conj()
+        correlation_matrix += np.einsum('dk,el->kdle', Psi_conj_norm, Psi)
+        correlation_vector += np.einsum('dk,e->ked', Psi_conj_norm, Y[:, t])
+
+    correlation_matrix = np.reshape(correlation_matrix, (K * D, K * D))
+    return correlation_matrix, correlation_vector
+
+
+def get_correlations_narrow_v5(Y, inverse_power, K, delay):
+    D, T = Y.shape
+
+    correlation_matrix = np.zeros((K, D, K, D), dtype=Y.dtype)
+    correlation_vector = np.zeros((K, D, D), dtype=Y.dtype)
+
+    # Shape (D, T - K + 1, K)
+    view = np.copy(segment_axis(np.copy(Y), K, 1, axis=-1))[:, :, ::-1]
+
+    for t in range(delay + K - 1, T):
+        Psi = view[:, t - K + 1 - delay, :]
         Psi_conj_norm = inverse_power[t] * Psi.conj()
         correlation_matrix += np.einsum('dk,el->kdle', Psi_conj_norm, Psi)
         correlation_vector += np.einsum('dk,e->ked', Psi_conj_norm, Y[:, t])
@@ -120,25 +162,32 @@ def get_filter_matrix_conjugate(correlation_matrix, correlation_vector, K, D):
 def get_filter_matrix_conjugate_v3(Y, inverse_power, K, delay):
     D, T = Y.shape
 
-    correlation_matrix, correlation_vector = get_correlations_narrow(
+    correlation_matrix, correlation_vector = get_correlations_narrow_v5(
         Y, inverse_power, K, delay
     )
 
-    inv = np.linalg.inv(correlation_matrix)
-    inv = np.kron(np.eye(D), inv)
-
     correlation_vector = np.reshape(correlation_vector, (D * D * K, 1))
-
     selector = np.transpose(np.reshape(
         np.arange(D * D * K), (-1, K, D)
     ), (1, 0, 2)).flatten()
+    correlation_vector = correlation_vector[np.argsort(selector), :]
 
-    inv = inv[:, selector]
-    inv = inv[selector, :]
+    # Idea is to solve matrix inversion independently for each block matrix.
+    # This should still be faster and more stable than np.linalg.inv().
+    # print(np.linalg.cond(correlation_matrix))
+    stacked_filter_conj = np.reshape(
+        np.linalg.solve(
+            correlation_matrix[None, :, :],
+            np.reshape(correlation_vector, (D, D * K, 1))
+        ),
+        (D * D * K, 1)
+    )
+    stacked_filter_conj = stacked_filter_conj[selector, :]
 
-    stacked_filter_conj = inv @ correlation_vector
     filter_matrix_conj = np.transpose(
-        np.reshape(stacked_filter_conj, (K, D, D)), (0, 2, 1))
+        np.reshape(stacked_filter_conj, (K, D, D)),
+        (0, 2, 1)
+    )
     return filter_matrix_conj
 
 

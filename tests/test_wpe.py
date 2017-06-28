@@ -42,6 +42,10 @@ class TestWPE(unittest.TestCase):
         tc.assert_allclose(r_v2, r)
 
     def test_delay_zero_cancels_all(self):
+        """
+        If this test fails, it is due to high condition number of
+        correlation matrix.
+        """
         T = np.random.randint(10, 100)
         D = np.random.randint(2, 8)
         K = np.random.randint(3, 5)
@@ -73,6 +77,10 @@ class TestWPE(unittest.TestCase):
         tc.assert_allclose(a, b)
 
     def test_filter_matrix_conjugate_v1_vs_v3(self):
+        """
+        If this test fails, it is due to high condition number of
+        correlation matrix.
+        """
         T = np.random.randint(10, 100)
         D = np.random.randint(2, 8)
         K = np.random.randint(3, 5)
@@ -91,3 +99,29 @@ class TestWPE(unittest.TestCase):
         v3 = wpe.get_filter_matrix_conjugate_v3(Y, inverse_power, K, delay)
 
         tc.assert_allclose(v3, ref, atol=1e-10)
+
+    def test_correlations_narrow_v1_vs_v5(self):
+        T = np.random.randint(10, 100)
+        D = np.random.randint(2, 8)
+        K = np.random.randint(3, 5)
+        delay = np.random.randint(0, 2)
+        Y = np.random.normal(size=(D, T)) + 1j * np.random.normal(size=(D, T))
+
+        inverse_power = wpe.get_power_inverse(Y)
+        R, r = wpe.get_correlations_narrow(Y, inverse_power, K, delay)
+        R_v5, r_v5 = wpe.get_correlations_narrow_v5(Y, inverse_power, K, delay)
+
+        tc.assert_allclose(R_v5, R)
+        tc.assert_allclose(r_v5, r)
+
+    def test_Psi_narrow_v1_vs_v5(self):
+        T = np.random.randint(10, 100)
+        D = np.random.randint(2, 8)
+        K = np.random.randint(3, 5)
+        delay = np.random.randint(0, 2)
+        Y = np.random.normal(size=(D, T)) + 1j * np.random.normal(size=(D, T))
+
+        for t in range(delay + K - 1, T):
+            Psi = wpe.get_Psi_narrow(Y, t, K)
+            Psi_v5 = wpe.get_Psi_narrow_v5(Y, t, K)
+            tc.assert_allclose(Psi, Psi_v5)
