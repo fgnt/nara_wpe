@@ -35,14 +35,13 @@ def wpe(Y, K=10, delay=3, iterations=3):
     Returns:
 
     """
-    # D, T = Y.shape
     X = np.copy(Y)
     for iteration in range(iterations):
         inverse_power = get_power_inverse(X)
-        # correlation_matrix, correlation_vector = get_correlations_v2(Y, inverse_power, K, delay)
-        # filter_matrix_conjugate = get_filter_matrix_conjugate(correlation_matrix, correlation_vector, K, D)
-        filter_matrix_conjugate = get_filter_matrix_conjugate_v3(Y, inverse_power, K, delay)
-        X = perform_filter_operation_v4(Y, filter_matrix_conjugate, K, delay)
+        filter_matrix_conj = get_filter_matrix_conj_v3(
+            Y, inverse_power, K, delay
+        )
+        X = perform_filter_operation_v4(Y, filter_matrix_conj, K, delay)
     return X
 
 
@@ -72,7 +71,8 @@ def get_correlations(Y, inverse_power, K, delay):
     for t in range(delay + K - 1, T):
         Psi = get_Psi(Y, t - delay, K)
         correlation_matrix += inverse_power[t] * np.dot(Psi.conj(), Psi.T)
-        correlation_vector += inverse_power[t] * np.dot(Psi.conj(), Y[:, t])[:, None]
+        correlation_vector \
+            += inverse_power[t] * np.dot(Psi.conj(), Y[:, t])[:, None]
 
     return correlation_matrix, correlation_vector
 
@@ -83,21 +83,12 @@ def get_Psi_narrow(Y, t, K):
     return Y[:, selector]
 
 
-def get_Psi_narrow_v5(Y, t, K):
-    assert t - K + 1 >= 0
-    view = np.copy(segment_axis(np.copy(Y), K, 1, axis=-1))
-    # selector = slice(t, t - K if t - K >= 0 else None, -1)
-    # return Y[:, selector]
-    return view[:, t - K + 1, ::-1]
-
-
 def get_correlations_narrow(Y, inverse_power, K, delay):
     D, T = Y.shape
 
     correlation_matrix = np.zeros((K, D, K, D), dtype=Y.dtype)
     correlation_vector = np.zeros((K, D, D), dtype=Y.dtype)
 
-    # TODO: Faster with nt.utils.numpy_utils.segment_axis
     for t in range(delay + K - 1, T):
         Psi = get_Psi_narrow(Y, t - delay, K)
         Psi_conj_norm = inverse_power[t] * Psi.conj()
@@ -111,17 +102,17 @@ def get_correlations_narrow(Y, inverse_power, K, delay):
 def get_correlations_narrow_v5(Y, inverse_power, K, delay):
     D, T = Y.shape
 
-    correlation_matrix = np.zeros((K, D, K, D), dtype=Y.dtype)
-    correlation_vector = np.zeros((K, D, D), dtype=Y.dtype)
-
+    # TODO: Small gains expected, when views are pre-calculated in main.
+    # TODO: Larger gains expected with scipy.signal.signaltools.fftconvolve().
+    # Code without fft will be easier to port to Chainer.
     # Shape (D, T - K + 1, K)
-    view = np.copy(segment_axis(np.copy(Y), K, 1, axis=-1))[:, :, ::-1]
+    Psi = segment_axis(Y, K, 1, axis=-1)[:, :T - delay - K + 1, ::-1]
+    Psi_conj_norm = inverse_power[None, delay + K - 1:, None] * Psi.conj()
 
-    for t in range(delay + K - 1, T):
-        Psi = view[:, t - K + 1 - delay, :]
-        Psi_conj_norm = inverse_power[t] * Psi.conj()
-        correlation_matrix += np.einsum('dk,el->kdle', Psi_conj_norm, Psi)
-        correlation_vector += np.einsum('dk,e->ked', Psi_conj_norm, Y[:, t])
+    correlation_matrix = np.einsum('dtk,etl->kdle', Psi_conj_norm, Psi)
+    correlation_vector = np.einsum(
+        'dtk,et->ked', Psi_conj_norm, Y[:, delay + K - 1:]
+    )
 
     correlation_matrix = np.reshape(correlation_matrix, (K * D, K * D))
     return correlation_matrix, correlation_vector
@@ -149,7 +140,7 @@ def get_correlations_v2(Y, inverse_power, K, delay):
     return correlation_matrix, correlation_vector
 
 
-def get_filter_matrix_conjugate(correlation_matrix, correlation_vector, K, D):
+def get_filter_matrix_conj(correlation_matrix, correlation_vector, K, D):
     stacked_filter_conj = np.linalg.solve(
         correlation_matrix, correlation_vector
     )
@@ -159,7 +150,7 @@ def get_filter_matrix_conjugate(correlation_matrix, correlation_vector, K, D):
     return filter_matrix_conj
 
 
-def get_filter_matrix_conjugate_v3(Y, inverse_power, K, delay):
+def get_filter_matrix_conj_v3(Y, inverse_power, K, delay):
     D, T = Y.shape
 
     correlation_matrix, correlation_vector = get_correlations_narrow_v5(
@@ -191,28 +182,26 @@ def get_filter_matrix_conjugate_v3(Y, inverse_power, K, delay):
     return filter_matrix_conj
 
 
-def perform_filter_operation(Y, filter_matrix_conjugate, K, delay):
+def perform_filter_operation(Y, filter_matrix_conj, K, delay):
     _, T = Y.shape
     X = np.copy(Y)  # Can be avoided by providing X from outside.
     for t in range(delay + K - 1, T):  # Changed, since t - tau was negative.
         for tau in range(delay, delay + K - 1 + 1):
             assert t - tau >= 0, (t, tau)
             assert tau - delay >= 0, (tau, delay)
-            # print(tau, end=' ')
-            X[:, t] -= filter_matrix_conjugate[tau - delay, :, :].T @ Y[:, t - tau]
-        # print()
+            X[:, t] -= filter_matrix_conj[tau - delay, :, :].T @ Y[:, t - tau]
     return X
 
 
-def perform_filter_operation_v4(Y, filter_matrix_conjugate, K, delay):
+def perform_filter_operation_v4(Y, filter_matrix_conj, K, delay):
     _, T = Y.shape
     X = np.copy(Y)  # Can be avoided by providing X from outside.
 
-    # TODO: Second loop can be removed with using segment_axis.
+    # TODO: Second loop can be removed with using segment_axis. No large gain.
     for tau_minus_delay in range(0, K):
-        X[:, (delay + K - 1):T] -= np.einsum(
+        X[:, (delay + K - 1):] -= np.einsum(
             'de,dt',
-            filter_matrix_conjugate[tau_minus_delay, :, :],
+            filter_matrix_conj[tau_minus_delay, :, :],
             Y[:, (K - 1 - tau_minus_delay):(T - delay - tau_minus_delay)]
         )
     return X
