@@ -6,7 +6,7 @@ Run all tests either with:
 import unittest
 import nt.testing as tc
 import numpy as np
-from quarry import wpe
+from nara_wpe import wpe
 
 
 class TestWPE(unittest.TestCase):
@@ -56,3 +56,18 @@ class TestWPE(unittest.TestCase):
             np.zeros_like(X_hat[:, delay + K - 1:]),
             atol=1e-10
         )
+
+    def test_filter_operation_v1_vs_v4(self):
+        T = np.random.randint(10, 100)
+        D = np.random.randint(2, 8)
+        K = np.random.randint(3, 5)
+        delay = np.random.randint(0, 2)
+
+        Y = np.random.normal(size=(D, T)) + 1j * np.random.normal(size=(D, T))
+        filter_matrix_conjugate = np.random.normal(size=(K, D, D)) \
+            + 1j * np.random.normal(size=(K, D, D))
+
+        a = wpe.perform_filter_operation(Y, filter_matrix_conjugate, K, delay)
+        b = wpe.perform_filter_operation_v4(Y, filter_matrix_conjugate, K, delay)
+
+        tc.assert_allclose(a, b)

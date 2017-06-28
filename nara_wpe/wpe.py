@@ -27,7 +27,7 @@ def wpe(Y, K=10, delay=3, iterations=3):
         inverse_power = get_power_inverse(X)
         correlation_matrix, correlation_vector = get_correlations_v2(Y, inverse_power, K, delay)
         filter_matrix_conjugate = get_filter_matrix_conjugate(correlation_matrix, correlation_vector, K, D)
-        X = perform_filter_operation(Y, filter_matrix_conjugate, K, delay)
+        X = perform_filter_operation_v4(Y, filter_matrix_conjugate, K, delay)
     return X
 
 
@@ -68,15 +68,13 @@ def get_Psi_narrow(Y, t, K):
     return Y[:, selector]
 
 
-def get_correlations_v2(Y, inverse_power, K, delay):
-    """
-    Later, this version of the correlation matrix can be used without the
-    additional column reordering. For now, it needs to be compatible to v1.
-    """
+def get_correlations_narrow(Y, inverse_power, K, delay):
     D, T = Y.shape
 
     correlation_matrix = np.zeros((K, D, K, D), dtype=Y.dtype)
     correlation_vector = np.zeros((K, D, D), dtype=Y.dtype)
+
+    # TODO: Faster with nt.utils.numpy_utils.segment_axis
     for t in range(delay + K - 1, T):
         Psi = get_Psi_narrow(Y, t - delay, K)
         Psi_conj_norm = inverse_power[t] * Psi.conj()
@@ -84,9 +82,21 @@ def get_correlations_v2(Y, inverse_power, K, delay):
         correlation_vector += np.einsum('dk,e->ked', Psi_conj_norm, Y[:, t])
 
     correlation_matrix = np.reshape(correlation_matrix, (K * D, K * D))
-    correlation_matrix = np.kron(np.eye(D), correlation_matrix)
+    return correlation_matrix, correlation_vector
 
-    correlation_vector = np.reshape(correlation_vector, (D * D * K, 1))
+
+def get_correlations_v2(Y, inverse_power, K, delay):
+    """
+    Later, this version of the correlation matrix can be used without the
+    additional column reordering. For now, it needs to be compatible to v1.
+    """
+    D, T = Y.shape
+
+    correlation_matrix, correlation_vector = get_correlations_narrow(
+        Y, inverse_power, K, delay
+    )
+    correlation_matrix = np.kron(np.eye(D), correlation_matrix)
+    correlation_vector = np.reshape(correlation_vector, (K * D * D, 1))
 
     selector = np.transpose(np.reshape(
         np.arange(D * D * K), (-1, K, D)
@@ -102,6 +112,34 @@ def get_filter_matrix_conjugate(correlation_matrix, correlation_vector, K, D):
         correlation_matrix, correlation_vector
     )
     filter_matrix_conj = np.transpose(
+        np.reshape(stacked_filter_conj, (K, D, D)), (0, 2, 1)
+    )
+    return filter_matrix_conj
+
+
+def get_filter_matrix_conjugate_v3(Y, inverse_power, K, delay):
+    D, T = Y.shape
+
+    correlation_matrix, correlation_vector = get_correlations_narrow(
+        Y, inverse_power, K, delay
+    )
+    correlation_matrix = np.kron(np.eye(D), correlation_matrix)
+    correlation_vector = np.reshape(correlation_vector, (D * D * K, 1))
+
+    selector = np.transpose(np.reshape(
+        np.arange(D * D * K), (-1, K, D)
+    ), (1, 0, 2)).flatten()
+
+    # TODO: If selector could be moved behind inv, smaller matrix can be inverted.
+    correlation_matrix = correlation_matrix[selector, :]
+
+    inv = np.linalg.inv(correlation_matrix)
+
+    inv = inv[:, selector]
+
+    correlation_vector = correlation_vector[selector, :]
+    stacked_filter_conj = inv @ correlation_vector
+    filter_matrix_conj = np.transpose(
         np.reshape(stacked_filter_conj, (K, D, D)), (0, 2, 1))
     return filter_matrix_conj
 
@@ -114,12 +152,26 @@ def perform_filter_operation(Y, filter_matrix_conjugate, K, delay):
             assert t - tau >= 0, (t, tau)
             assert tau - delay >= 0, (tau, delay)
             # print(tau, end=' ')
-            X[:, t] -= filter_matrix_conjugate[tau - delay, :, :] @ Y[:, t - tau]
+            X[:, t] -= filter_matrix_conjugate[tau - delay, :, :].T @ Y[:, t - tau]
         # print()
     return X
 
 
-if __name__ == '__main__':
+def perform_filter_operation_v4(Y, filter_matrix_conjugate, K, delay):
+    _, T = Y.shape
+    X = np.copy(Y)  # Can be avoided by providing X from outside.
+
+    # TODO: Second loop can be removed with using segment_axis.
+    for tau_minus_delay in range(0, K):
+        X[:, (delay + K - 1):T] -= np.einsum(
+            'de,dt',
+            filter_matrix_conjugate[tau_minus_delay, :, :],
+            Y[:, (K - 1 - tau_minus_delay):(T - delay - tau_minus_delay)]
+        )
+    return X
+
+
+def main():
     from nara_wpe import project_root
     import soundfile as sf
     from nara_wpe.utils import stft
@@ -181,3 +233,7 @@ if __name__ == '__main__':
         str(project_root / 'data' / 'wpe_out.wav'),
         x[0], samplerate=sampling_rate
     )
+
+
+if __name__ == '__main__':
+    main()
