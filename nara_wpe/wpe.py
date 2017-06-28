@@ -131,14 +131,16 @@ def get_filter_matrix_conjugate_v3(Y, inverse_power, K, delay):
     ), (1, 0, 2)).flatten()
 
     # TODO: If selector could be moved behind inv, smaller matrix can be inverted.
-    correlation_matrix = correlation_matrix[selector, :]
+    # correlation_matrix = correlation_matrix[:, selector]
+    # correlation_matrix = correlation_matrix[selector, :]
 
     inv = np.linalg.inv(correlation_matrix)
-
     inv = inv[:, selector]
+    inv = inv[selector, :]
 
-    correlation_vector = correlation_vector[selector, :]
+    # correlation_vector = correlation_vector[selector, :]
     stacked_filter_conj = inv @ correlation_vector
+    # stacked_filter_conj = stacked_filter_conj[np.argsort(selector), :]
     filter_matrix_conj = np.transpose(
         np.reshape(stacked_filter_conj, (K, D, D)), (0, 2, 1))
     return filter_matrix_conj

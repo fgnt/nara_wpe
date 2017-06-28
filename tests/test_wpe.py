@@ -71,3 +71,23 @@ class TestWPE(unittest.TestCase):
         b = wpe.perform_filter_operation_v4(Y, filter_matrix_conjugate, K, delay)
 
         tc.assert_allclose(a, b)
+
+    def test_filter_matrix_conjugate_v1_vs_v3(self):
+        T = np.random.randint(10, 100)
+        D = np.random.randint(2, 8)
+        K = np.random.randint(3, 5)
+        delay = np.random.randint(0, 2)
+
+        Y = np.random.normal(size=(D, T)) + 1j * np.random.normal(size=(D, T))
+
+        inverse_power = wpe.get_power_inverse(Y)
+
+        correlation_matrix, correlation_vector = wpe.get_correlations(
+            Y, inverse_power, K, delay
+        )
+        ref = wpe.get_filter_matrix_conjugate(
+            correlation_matrix, correlation_vector, K, D
+        )
+        v3 = wpe.get_filter_matrix_conjugate_v3(Y, inverse_power, K, delay)
+
+        tc.assert_allclose(v3, ref, atol=1e-10)
