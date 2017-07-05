@@ -27,7 +27,7 @@ def wpe(Y, K=10, delay=3, iterations=3):
     """
 
     Args:
-        Y:
+        Y: Complex valued STFT signal with shape (D, T)
         K: Filter order
         delay: Delay as a guard interval, such that X does not become zero.
         iterations:
@@ -38,7 +38,64 @@ def wpe(Y, K=10, delay=3, iterations=3):
     X = np.copy(Y)
     for iteration in range(iterations):
         inverse_power = get_power_inverse(X)
-        filter_matrix_conj = get_filter_matrix_conj_v3(
+        filter_matrix_conj = get_filter_matrix_conj_v5(
+            Y, inverse_power, K, delay
+        )
+        X = perform_filter_operation_v4(Y, filter_matrix_conj, K, delay)
+    return X
+
+
+def wpe_v1(Y, K=10, delay=3, iterations=3):
+    D, T = Y.shape
+    X = np.copy(Y)
+    for iteration in range(iterations):
+        inverse_power = get_power_inverse(X)
+        correlation_matrix, correlation_vector = get_correlations(
+            Y, inverse_power, K, delay
+        )
+        filter_matrix_conj = get_filter_matrix_conj(
+            correlation_matrix, correlation_vector, K, D
+        )
+        X = perform_filter_operation(Y, filter_matrix_conj, K, delay)
+    return X
+
+
+def wpe_v2(Y, K=10, delay=3, iterations=3):
+    D, T = Y.shape
+    X = np.copy(Y)
+    for iteration in range(iterations):
+        inverse_power = get_power_inverse(X)
+        correlation_matrix, correlation_vector = get_correlations_v2(
+            Y, inverse_power, K, delay
+        )
+        filter_matrix_conj = get_filter_matrix_conj(
+            correlation_matrix, correlation_vector, K, D
+        )
+        X = perform_filter_operation(Y, filter_matrix_conj, K, delay)
+    return X
+
+
+def wpe_v4(Y, K=10, delay=3, iterations=3):
+    D, T = Y.shape
+    X = np.copy(Y)
+    for iteration in range(iterations):
+        inverse_power = get_power_inverse(X)
+        correlation_matrix, correlation_vector = get_correlations_v2(
+            Y, inverse_power, K, delay
+        )
+        filter_matrix_conj = get_filter_matrix_conj(
+            correlation_matrix, correlation_vector, K, D
+        )
+        X = perform_filter_operation_v4(Y, filter_matrix_conj, K, delay)
+    return X
+
+
+def wpe_v5(Y, K=10, delay=3, iterations=3):
+    D, T = Y.shape
+    X = np.copy(Y)
+    for iteration in range(iterations):
+        inverse_power = get_power_inverse(X)
+        filter_matrix_conj = get_filter_matrix_conj_v5(
             Y, inverse_power, K, delay
         )
         X = perform_filter_operation_v4(Y, filter_matrix_conj, K, delay)
@@ -150,7 +207,7 @@ def get_filter_matrix_conj(correlation_matrix, correlation_vector, K, D):
     return filter_matrix_conj
 
 
-def get_filter_matrix_conj_v3(Y, inverse_power, K, delay):
+def get_filter_matrix_conj_v5(Y, inverse_power, K, delay):
     D, T = Y.shape
 
     correlation_matrix, correlation_vector = get_correlations_narrow_v5(
@@ -225,7 +282,9 @@ def main():
         stft_size, stft_shift = 512, 128
         delay = 3
         iterations = 5
-        get_K = lambda *args: 10
+
+        def get_K(f):
+            return 10
 
     elif parameter_set == 'Yoshioka2012GeneralWPE':
         sampling_rate = 8000
@@ -249,7 +308,7 @@ def main():
     signal_list = [
         sf.read(str(project_root / 'data' / file_template.format(d + 1)))[0]
         for d in range(channels)
-    ]
+        ]
     signal_list = [resample(x_, 16000, sampling_rate) for x_ in signal_list]
     y = np.stack(signal_list, axis=0)
 

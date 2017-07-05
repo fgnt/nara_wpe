@@ -1,5 +1,5 @@
 """
-Run all tests either with:
+Run all tests with:
     nosetests -w tests/
 """
 
@@ -10,7 +10,15 @@ from nara_wpe import wpe
 
 
 class TestWPE(unittest.TestCase):
-    def test_correlations_v1_vs_v2(self):
+    def setUp(self):
+        self.T = np.random.randint(100, 120)
+        self.D = np.random.randint(2, 8)
+        self.K = np.random.randint(3, 5)
+        self.delay = np.random.randint(0, 2)
+        self.Y = np.random.normal(size=(self.D, self.T)) \
+            + 1j * np.random.normal(size=(self.D, self.T))
+
+    def test_correlations_v1_vs_v2_toy_example(self):
         K = 3
         delay = 1
         Y = np.asarray(
@@ -19,97 +27,82 @@ class TestWPE(unittest.TestCase):
                 [41, 22, 23, 24]
             ], dtype=np.float32
         )
-
         inverse_power = wpe.get_power_inverse(Y)
-        R, r = wpe.get_correlations(Y, inverse_power, K, delay)
-        R_v2, r_v2 = wpe.get_correlations_v2(Y, inverse_power, K, delay)
+        R_desired, r_desired = wpe.get_correlations(Y, inverse_power, K, delay)
+        R_actual, r_actual = wpe.get_correlations_v2(Y, inverse_power, K, delay)
+        tc.assert_allclose(R_actual, R_desired)
+        tc.assert_allclose(r_actual, r_desired)
 
-        tc.assert_allclose(R_v2, R)
-        tc.assert_allclose(r_v2, r)
-
-    def test_correlations_v1_vs_v2_randomized(self):
-        T = np.random.randint(10, 100)
-        D = np.random.randint(2, 8)
-        K = np.random.randint(3, 5)
-        delay = np.random.randint(0, 2)
-        Y = np.random.normal(size=(D, T)) + 1j * np.random.normal(size=(D, T))
-
-        inverse_power = wpe.get_power_inverse(Y)
-        R, r = wpe.get_correlations(Y, inverse_power, K, delay)
-        R_v2, r_v2 = wpe.get_correlations_v2(Y, inverse_power, K, delay)
-
-        tc.assert_allclose(R_v2, R)
-        tc.assert_allclose(r_v2, r)
-
-    def test_delay_zero_cancels_all(self):
-        """
-        If this test fails, it is due to high condition number of
-        correlation matrix.
-        """
-        T = np.random.randint(10, 100)
-        D = np.random.randint(2, 8)
-        K = np.random.randint(3, 5)
-        delay = 0
-        Y = np.random.normal(size=(D, T)) + 1j * np.random.normal(size=(D, T))
-
-        X_hat = wpe.wpe(Y, K, delay=delay)
-
-        # Beginning is never zero. Is a copy of input signal.
-        tc.assert_allclose(
-            X_hat[:, delay + K - 1:],
-            np.zeros_like(X_hat[:, delay + K - 1:]),
-            atol=1e-10
+    def test_correlations_v1_vs_v2(self):
+        inverse_power = wpe.get_power_inverse(self.Y)
+        R_desired, r_desired = wpe.get_correlations(
+            self.Y, inverse_power, self.K, self.delay
         )
+        R_actual, r_actual = wpe.get_correlations_v2(
+            self.Y, inverse_power, self.K, self.delay
+        )
+        tc.assert_allclose(R_actual, R_desired)
+        tc.assert_allclose(r_actual, r_desired)
+
+    def test_wpe_v1_vs_v2(self):
+        desired = wpe.wpe_v1(self.Y, self.K, self.delay)
+        actual = wpe.wpe_v2(self.Y, self.K, self.delay)
+        tc.assert_allclose(actual, desired)
 
     def test_filter_operation_v1_vs_v4(self):
-        T = np.random.randint(10, 100)
-        D = np.random.randint(2, 8)
-        K = np.random.randint(3, 5)
-        delay = np.random.randint(0, 2)
+        filter_matrix_conj = np.random.normal(size=(self.K, self.D, self.D)) \
+            + 1j * np.random.normal(size=(self.K, self.D, self.D))
 
-        Y = np.random.normal(size=(D, T)) + 1j * np.random.normal(size=(D, T))
-        filter_matrix_conj = np.random.normal(size=(K, D, D)) \
-            + 1j * np.random.normal(size=(K, D, D))
-
-        a = wpe.perform_filter_operation(Y, filter_matrix_conj, K, delay)
-        b = wpe.perform_filter_operation_v4(Y, filter_matrix_conj, K, delay)
-
-        tc.assert_allclose(a, b)
-
-    def test_filter_matrix_conj_v1_vs_v3(self):
-        """
-        If this test fails, it is due to high condition number of
-        correlation matrix.
-        """
-        T = np.random.randint(10, 100)
-        D = np.random.randint(2, 8)
-        K = np.random.randint(3, 5)
-        delay = np.random.randint(0, 2)
-
-        Y = np.random.normal(size=(D, T)) + 1j * np.random.normal(size=(D, T))
-
-        inverse_power = wpe.get_power_inverse(Y)
-
-        correlation_matrix, correlation_vector = wpe.get_correlations(
-            Y, inverse_power, K, delay
+        desired = wpe.perform_filter_operation(
+            self.Y, filter_matrix_conj, self.K, self.delay
         )
-        ref = wpe.get_filter_matrix_conj(
-            correlation_matrix, correlation_vector, K, D
+        actual = wpe.perform_filter_operation_v4(
+            self.Y, filter_matrix_conj, self.K, self.delay
         )
-        v3 = wpe.get_filter_matrix_conj_v3(Y, inverse_power, K, delay)
+        tc.assert_allclose(desired, actual)
 
-        tc.assert_allclose(v3, ref, atol=1e-10)
+    def test_wpe_v1_vs_v4(self):
+        desired = wpe.wpe_v1(self.Y, self.K, self.delay)
+        actual = wpe.wpe_v4(self.Y, self.K, self.delay)
+        tc.assert_allclose(actual, desired)
 
     def test_correlations_narrow_v1_vs_v5(self):
-        T = np.random.randint(10, 100)
-        D = np.random.randint(2, 8)
-        K = np.random.randint(3, 5)
-        delay = np.random.randint(0, 2)
-        Y = np.random.normal(size=(D, T)) + 1j * np.random.normal(size=(D, T))
+        inverse_power = wpe.get_power_inverse(self.Y)
+        R_desired, r_desired = wpe.get_correlations_narrow(
+            self.Y, inverse_power, self.K, self.delay
+        )
+        R_actual, r_actual = wpe.get_correlations_narrow_v5(
+            self.Y, inverse_power, self.K, self.delay
+        )
+        tc.assert_allclose(R_actual, R_desired)
+        tc.assert_allclose(r_actual, r_desired)
 
-        inverse_power = wpe.get_power_inverse(Y)
-        R, r = wpe.get_correlations_narrow(Y, inverse_power, K, delay)
-        R_v5, r_v5 = wpe.get_correlations_narrow_v5(Y, inverse_power, K, delay)
+    def test_filter_matrix_conj_v1_vs_v5(self):
+        inverse_power = wpe.get_power_inverse(self.Y)
 
-        tc.assert_allclose(R_v5, R)
-        tc.assert_allclose(r_v5, r)
+        correlation_matrix, correlation_vector = wpe.get_correlations(
+            self.Y, inverse_power, self.K, self.delay
+        )
+        desired = wpe.get_filter_matrix_conj(
+            correlation_matrix, correlation_vector, self.K, self.D
+        )
+        actual = wpe.get_filter_matrix_conj_v5(
+            self.Y, inverse_power, self.K, self.delay
+        )
+        tc.assert_allclose(actual, desired, atol=1e-10)
+
+    def test_wpe_v1_vs_v5(self):
+        desired = wpe.wpe_v1(self.Y, self.K, self.delay)
+        actual = wpe.wpe_v5(self.Y, self.K, self.delay)
+        tc.assert_allclose(actual, desired)
+
+    def test_delay_zero_cancels_all(self):
+        delay = 0
+        X_hat = wpe.wpe(self.Y, self.K, delay=delay)
+
+        # Beginning is never zero. It is a copy of input signal.
+        tc.assert_allclose(
+            X_hat[:, delay + self.K - 1:],
+            np.zeros_like(X_hat[:, delay + self.K - 1:]),
+            atol=1e-10
+        )
