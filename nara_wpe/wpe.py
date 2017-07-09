@@ -91,7 +91,6 @@ def wpe_v4(Y, K=10, delay=3, iterations=3):
 
 
 def wpe_v5(Y, K=10, delay=3, iterations=3):
-    D, T = Y.shape
     X = np.copy(Y)
     for iteration in range(iterations):
         inverse_power = get_power_inverse(X)
