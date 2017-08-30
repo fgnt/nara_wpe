@@ -158,6 +158,7 @@ def get_correlations_narrow(Y, inverse_power, K, delay):
 def get_correlations_narrow_v5(Y, inverse_power, K, delay):
     D, T = Y.shape
 
+    # TODO: Large gains also expected when precalculating Psi.
     # TODO: Small gains expected, when views are pre-calculated in main.
     # TODO: Larger gains expected with scipy.signal.signaltools.fftconvolve().
     # Code without fft will be easier to port to Chainer.
@@ -211,6 +212,38 @@ def get_filter_matrix_conj_v5(Y, inverse_power, K, delay):
 
     correlation_matrix, correlation_vector = get_correlations_narrow_v5(
         Y, inverse_power, K, delay
+    )
+
+    correlation_vector = np.reshape(correlation_vector, (D * D * K, 1))
+    selector = np.transpose(np.reshape(
+        np.arange(D * D * K), (-1, K, D)
+    ), (1, 0, 2)).flatten()
+    correlation_vector = correlation_vector[np.argsort(selector), :]
+
+    # Idea is to solve matrix inversion independently for each block matrix.
+    # This should still be faster and more stable than np.linalg.inv().
+    # print(np.linalg.cond(correlation_matrix))
+    stacked_filter_conj = np.reshape(
+        np.linalg.solve(
+            correlation_matrix[None, :, :],
+            np.reshape(correlation_vector, (D, D * K, 1))
+        ),
+        (D * D * K, 1)
+    )
+    stacked_filter_conj = stacked_filter_conj[selector, :]
+
+    filter_matrix_conj = np.transpose(
+        np.reshape(stacked_filter_conj, (K, D, D)),
+        (0, 2, 1)
+    )
+    return filter_matrix_conj
+
+
+def get_filter_matrix_conj_v6(Y, Psi, inverse_power, K, delay):
+    D, T = Y.shape
+
+    correlation_matrix, correlation_vector = get_correlations_narrow_v6(
+        Y, Psi, inverse_power, K, delay
     )
 
     correlation_vector = np.reshape(correlation_vector, (D * D * K, 1))
@@ -319,7 +352,7 @@ def main():
     D, T, F = Y.shape
     for f in tqdm(range(F), total=F):
         K = get_K(f)
-        X[:, :, f] = wpe(Y[:, :, f], K=K, delay=delay, iterations=iterations)
+        X[:, :, f] = wpe_v5(Y[:, :, f], K=K, delay=delay, iterations=iterations)
 
     x = istft(X, size=stft_size, shift=stft_shift)
 
