@@ -218,7 +218,8 @@ def get_filter_matrix_conj_v5(Y, inverse_power, K, delay):
     selector = np.transpose(np.reshape(
         np.arange(D * D * K), (-1, K, D)
     ), (1, 0, 2)).flatten()
-    correlation_vector = correlation_vector[np.argsort(selector), :]
+    inv_selector = np.argsort(selector)
+    correlation_vector = correlation_vector[inv_selector, :]
 
     # Idea is to solve matrix inversion independently for each block matrix.
     # This should still be faster and more stable than np.linalg.inv().
