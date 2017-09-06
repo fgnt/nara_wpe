@@ -1,5 +1,6 @@
 import tensorflow as tf
 from tensorflow.contrib import signal as tf_signal
+from tensorflow.contrib.compiler.jit import experimental_jit_scope as jit_scope
 
 
 def get_power_inverse(signal, channel_axis=0):
@@ -44,13 +45,45 @@ def get_correlations_narrow(Y, inverse_power, K, delay):
     return correlation_matrix, correlation_vector
 
 
-def get_filter_matrix_conj(Y, inverse_power, K, delay):
+def get_correlations(Y, inverse_power, K, delay):
+    """
+
+    :param Y: [F, D, T] `Tensor`
+    :param inverse_power: [F, T] `Tensor`
+    :param K: Number of taps
+    :param delay: delay
+    :return:
+    """
+    dyn_shape = tf.shape(Y)
+    F = dyn_shape[0]
+    D = dyn_shape[1]
+    T = dyn_shape[2]
+
+    # TODO: Large gains also expected when precalculating Psi.
+    # TODO: Small gains expected, when views are pre-calculated in main.
+    # TODO: Larger gains expected with scipy.signal.signaltools.fftconvolve().
+    # Code without fft will be easier to port to Chainer.
+    # Shape (D, T - K + 1, K)
+    Psi = tf_signal.frame(Y, K, 1, axis=-1)[..., :T - delay - K + 1, ::-1]
+    Psi_conj_norm = (
+        tf.cast(inverse_power[:, None, delay + K - 1:, None], Psi.dtype)
+        * tf.conj(Psi)
+    )
+
+    correlation_matrix = tf.einsum('fdtk,fetl->fkdle', Psi_conj_norm, Psi)
+    correlation_vector = tf.einsum(
+        'fdtk,fet->fked', Psi_conj_norm, Y[..., delay + K - 1:]
+    )
+
+    correlation_matrix = tf.reshape(correlation_matrix, (F, K * D, K * D))
+    return correlation_matrix, correlation_vector
+
+
+def get_filter_matrix_conj(
+        Y, inverse_power, correlation_matrix, correlation_vector,
+        K, delay, use_inv=False):
     dyn_shape = tf.shape(Y)
     D = dyn_shape[0]
-
-    correlation_matrix, correlation_vector = get_correlations_narrow(
-        Y, inverse_power, K, delay
-    )
 
     correlation_vector = tf.reshape(correlation_vector, (D * D * K, 1))
     selector = tf.reshape(tf.transpose(tf.reshape(
@@ -65,13 +98,24 @@ def get_filter_matrix_conj(Y, inverse_power, K, delay):
     # Idea is to solve matrix inversion independently for each block matrix.
     # This should still be faster and more stable than np.linalg.inv().
     # print(np.linalg.cond(correlation_matrix))
-    stacked_filter_conj = tf.reshape(
-        tf.matrix_solve(
-            tf.tile(correlation_matrix[None, ...], [D, 1, 1]),
-            tf.reshape(correlation_vector, (D, D * K, 1))
-        ),
-        (D * D * K, 1)
-    )
+
+    if use_inv:
+        with tf.device('/cpu:0'):
+            inv_correlation_matrix = tf.matrix_inverse(correlation_matrix)
+        stacked_filter_conj = tf.einsum(
+            'ab,cb->ca',
+            inv_correlation_matrix, tf.reshape(correlation_vector, (D, D * K))
+        )
+        stacked_filter_conj = tf.reshape(stacked_filter_conj, (D * D * K, 1))
+    else:
+        with tf.device('/cpu:0'):
+            stacked_filter_conj = tf.reshape(
+                tf.matrix_solve(
+                    tf.tile(correlation_matrix[None, ...], [D, 1, 1]),
+                    tf.reshape(correlation_vector, (D, D * K, 1))
+                ),
+                (D * D * K, 1)
+            )
     stacked_filter_conj = tf.gather(stacked_filter_conj, selector)
 
     filter_matrix_conj = tf.transpose(
@@ -82,7 +126,8 @@ def get_filter_matrix_conj(Y, inverse_power, K, delay):
 
 
 def perform_filter_operation(Y, filter_matrix_conj, K, delay):
-    _, T = Y.shape
+    dyn_shape = tf.shape(Y)
+    T = dyn_shape[1]
 
     # TODO: Second loop can be removed with using segment_axis. No large gain.
     reverb_tail = list()
@@ -98,7 +143,7 @@ def perform_filter_operation(Y, filter_matrix_conj, K, delay):
          Y[:, (delay + K - 1):] - reverb_tail], axis=-1)
 
 
-def single_frequency_wpe(Y, K=10, delay=3, iterations=3):
+def single_frequency_wpe(Y, K=10, delay=3, iterations=3, use_inv=False):
     """
 
     Args:
@@ -110,34 +155,24 @@ def single_frequency_wpe(Y, K=10, delay=3, iterations=3):
     Returns:
 
     """
+
     for iteration in range(iterations):
-        inverse_power = get_power_inverse(Y)
-        filter_matrix_conj = get_filter_matrix_conj(
+        with jit_scope():
+            inverse_power = get_power_inverse(Y)
+        correlation_matrix, correlation_vector = get_correlations_narrow(
             Y, inverse_power, K, delay
         )
-        Y = perform_filter_operation(Y, filter_matrix_conj, K, delay)
+        filter_matrix_conj = get_filter_matrix_conj(
+            Y, inverse_power, correlation_matrix, correlation_vector,
+            K, delay, use_inv=use_inv
+        )
+        with jit_scope():
+            Y = perform_filter_operation(Y, filter_matrix_conj, K, delay)
     return Y
 
 
-def wpe(Y, K=10, delay=3, iterations=3):
-    """
-
-    Args:
-        Y: Complex valued STFT signal with shape (F, D, T)
-        K: Filter order
-        delay: Delay as a guard interval, such that X does not become zero.
-        iterations:
-
-    Returns:
-
-    """
-    enhanced_rows = list()
-    for row in tf.unstack(Y):
-        enhanced_rows.append(
-            single_frequency_wpe(row, K, delay, iterations))
-    return tf.stack(enhanced_rows)
-
-def wpe_loop(Y, K=10, delay=3, iterations=3):
+def wpe(
+        Y, K=10, delay=3, iterations=3, use_inv=False):
     F = Y.shape.as_list()[0]
     outputs = tf.TensorArray(Y.dtype, size=F)
     initial_f = tf.constant(0)
@@ -146,11 +181,59 @@ def wpe_loop(Y, K=10, delay=3, iterations=3):
         return f < F
 
     def iteration(f, outputs_):
-        enhanced = single_frequency_wpe(Y[f], K, delay, iterations)
+        enhanced = single_frequency_wpe(
+            Y[f], K, delay, iterations, use_inv=use_inv)
         outputs_ = outputs_.write(f, enhanced)
         return f + 1, outputs_
 
     _, enhanced_array = tf.while_loop(
-        should_continue, iteration, [initial_f, outputs])
+        should_continue, iteration, [initial_f, outputs]
+    )
 
     return enhanced_array.stack()
+
+
+def wpe_step(Y, inverse_power, K=10, delay=3, use_inv=False):
+    """
+
+    Args:
+        Y: Complex valued STFT signal with shape (F, D, T)
+        inverse_power: Power signal with shape (F, T)
+        K: Filter order
+        delay: Delay as a guard interval, such that X does not become zero.
+        iterations:
+
+    Returns:
+
+    """
+    F = Y.shape.as_list()[0]
+    outputs = tf.TensorArray(Y.dtype, size=F)
+    initial_f = tf.constant(0)
+
+    with tf.name_scope('WPE'):
+        with tf.name_scope('correlations'):
+            correlation_matrix, correlation_vector = get_correlations(
+                Y, inverse_power, K, delay
+            )
+
+        def should_continue(f, *args):
+            return f < F
+
+        def iteration(f, outputs_):
+            with tf.name_scope('filter_matrix'):
+                filter_matrix_conj = get_filter_matrix_conj(
+                    Y[f], inverse_power[f],
+                    correlation_matrix[f], correlation_vector[f],
+                    K, delay, use_inv=use_inv
+                )
+            with tf.name_scope('apply_filter'):
+                enhanced = perform_filter_operation(
+                    Y[f], filter_matrix_conj, K, delay)
+            outputs_ = outputs_.write(f, enhanced)
+            return f + 1, outputs_
+
+        _, enhanced_array = tf.while_loop(
+            should_continue, iteration, [initial_f, outputs]
+        )
+
+        return enhanced_array.stack()
