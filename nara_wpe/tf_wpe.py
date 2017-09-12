@@ -1,6 +1,13 @@
 import tensorflow as tf
 from tensorflow.contrib import signal as tf_signal
 from tensorflow.contrib.compiler.jit import experimental_jit_scope as jit_scope
+import nara_wpe.gradient_overrides
+from collections import namedtuple
+
+_MaskTypes = namedtuple(
+    'MaskTypes', ['DIRECT', 'RATIO', 'DIRECT_INV', 'RATIO_INV'])
+
+MASK_TYPES = _MaskTypes('direct', 'ratio', 'direct_inverse', 'ratio_inverse')
 
 
 def get_power_inverse(signal, channel_axis=0):
@@ -45,7 +52,10 @@ def get_correlations_narrow(Y, inverse_power, K, delay):
     return correlation_matrix, correlation_vector
 
 
-def get_correlations(Y, inverse_power, K, delay):
+def get_correlations(
+        Y, inverse_power, K, delay, mask_logits=None,
+        mask_type=MASK_TYPES.DIRECT
+):
     """
 
     :param Y: [F, D, T] `Tensor`
@@ -64,11 +74,27 @@ def get_correlations(Y, inverse_power, K, delay):
     # TODO: Larger gains expected with scipy.signal.signaltools.fftconvolve().
     # Code without fft will be easier to port to Chainer.
     # Shape (D, T - K + 1, K)
+    Y = Y / tf.norm(Y, axis=(-2, -1), keep_dims=True)
     Psi = tf_signal.frame(Y, K, 1, axis=-1)[..., :T - delay - K + 1, ::-1]
     Psi_conj_norm = (
         tf.cast(inverse_power[:, None, delay + K - 1:, None], Psi.dtype)
         * tf.conj(Psi)
     )
+
+    if mask_logits is not None:
+        # Using logits instead of a 'normal' mask is numerical more stable.
+        # There are a few ways to apply the mask:
+        # DIRECT: Mask is limited to values between 0 and 1
+        # RATIO: Mask values are positive and unlimited
+        # *_INV: Use 1-Mask to mask only the reverberation (may be easier
+        # to interpret)
+        logits = tf.cast(mask_logits[:, None, delay + K - 1:, None], Y.dtype)
+        if mask_type == MASK_TYPES.DIRECT or mask_type == MASK_TYPES.DIRECT_INV:
+            scale = -1. if mask_type == MASK_TYPES.DIRECT else 1.
+            Psi_conj_norm += Psi_conj_norm * tf.exp(scale * logits)
+        elif mask_type == MASK_TYPES.RATIO or mask_type == MASK_TYPES.RATIO_INV:
+            scale = -1. if mask_type == MASK_TYPES.DIRECT else 1.
+            Psi_conj_norm *= tf.exp(scale * logits)
 
     correlation_matrix = tf.einsum('fdtk,fetl->fkdle', Psi_conj_norm, Psi)
     correlation_vector = tf.einsum(
@@ -108,11 +134,13 @@ def get_filter_matrix_conj(
         )
         stacked_filter_conj = tf.reshape(stacked_filter_conj, (D * D * K, 1))
     else:
-        with tf.device('/cpu:0'):
+        g = tf.get_default_graph()
+        with tf.device('/cpu:0'), g.gradient_override_map(
+                {"MatrixSolveLs": "CustomMatrixSolveLs"}):
             stacked_filter_conj = tf.reshape(
-                tf.matrix_solve(
+                tf.matrix_solve_ls(
                     tf.tile(correlation_matrix[None, ...], [D, 1, 1]),
-                    tf.reshape(correlation_vector, (D, D * K, 1))
+                    tf.reshape(correlation_vector, (D, D * K, 1)), fast=False
                 ),
                 (D * D * K, 1)
             )
@@ -132,7 +160,7 @@ def perform_filter_operation(Y, filter_matrix_conj, K, delay):
     # TODO: Second loop can be removed with using segment_axis. No large gain.
     reverb_tail = list()
     for tau_minus_delay in range(0, K):
-         reverb_tail.append(tf.einsum(
+        reverb_tail.append(tf.einsum(
             'de,dt',
             filter_matrix_conj[tau_minus_delay, :, :],
             Y[:, (K - 1 - tau_minus_delay):(T - delay - tau_minus_delay)]
@@ -193,7 +221,10 @@ def wpe(
     return enhanced_array.stack()
 
 
-def wpe_step(Y, inverse_power, K=10, delay=3, use_inv=False):
+def wpe_step(
+        Y, inverse_power, K=10, delay=3, use_inv=False, mask_logits=None,
+        mask_type='direct'
+):
     """
 
     Args:
@@ -213,7 +244,7 @@ def wpe_step(Y, inverse_power, K=10, delay=3, use_inv=False):
     with tf.name_scope('WPE'):
         with tf.name_scope('correlations'):
             correlation_matrix, correlation_vector = get_correlations(
-                Y, inverse_power, K, delay
+                Y, inverse_power, K, delay, mask_logits, mask_type=mask_type
             )
 
         def should_continue(f, *args):
@@ -233,7 +264,9 @@ def wpe_step(Y, inverse_power, K=10, delay=3, use_inv=False):
             return f + 1, outputs_
 
         _, enhanced_array = tf.while_loop(
-            should_continue, iteration, [initial_f, outputs]
+            should_continue, iteration,
+            [initial_f, outputs]
         )
 
-        return enhanced_array.stack()
+        return enhanced_array.stack(), \
+               correlation_matrix, correlation_vector
