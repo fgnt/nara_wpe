@@ -197,6 +197,7 @@ def single_frequency_wpe(Y, K=10, delay=3, iterations=3, mode='inv'):
         K: Filter order
         delay: Delay as a guard interval, such that X does not become zero.
         iterations:
+        mode: Different implementations for inverse in R^-1 r.
 
     Returns:
 
@@ -218,8 +219,17 @@ def single_frequency_wpe(Y, K=10, delay=3, iterations=3, mode='inv'):
 
 
 def wpe(
-        Y, K=10, delay=3, iterations=3, mode='solve'
+        Y, K=10, delay=3, iterations=3, mode='inv'
 ):
+    """WPE for all frequencies at once. Use this for regular processing.
+
+    :param Y:
+    :param K:
+    :param delay:
+    :param iterations:
+    :param mode:
+    :return:
+    """
     F = Y.shape.as_list()[0]
     outputs = tf.TensorArray(Y.dtype, size=F)
     initial_f = tf.constant(0)
@@ -244,17 +254,20 @@ def wpe_step(
         Y, inverse_power, K=10, delay=3, mode='inv', mask_logits=None,
         mask_type='direct'
 ):
-    """
+    """Single WPE step. More suited for backpropagation.
 
     Args:
         Y: Complex valued STFT signal with shape (F, D, T)
         inverse_power: Power signal with shape (F, T)
         K: Filter order
         delay: Delay as a guard interval, such that X does not become zero.
-        iterations:
+        mode: Different implementations for inverse in R^-1 r.
+        mask_logits: If provided, is used to modify the observed inverse power
+            based on the mask_type selector provided.
+        mask_type: Different ways how to apply the mask_logits to the
+            inverse power.
 
     Returns:
-
     """
     F = Y.shape.as_list()[0]
     outputs = tf.TensorArray(Y.dtype, size=F)

@@ -1,8 +1,5 @@
 """
-Run all tests with:
-    nosetests --logging-level=WARN -w  nara_wpe/tests/
-
-RUn individual test file with i.e.
+Run individual test file with i.e.
     python nara_wpe/tests/test_tf_wpe.py
 """
 import numpy as np
