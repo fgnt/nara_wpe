@@ -1,7 +1,6 @@
 import tensorflow as tf
 from tensorflow.contrib import signal as tf_signal
 from tensorflow.contrib.compiler.jit import experimental_jit_scope as jit_scope
-import nara_wpe.gradient_overrides
 from collections import namedtuple
 
 _MaskTypes = namedtuple(
@@ -153,6 +152,8 @@ def get_filter_matrix_conj(
                 ),
                 (D * D * K, 1)
             )
+    else:
+        raise ValueError
     stacked_filter_conj = tf.gather(stacked_filter_conj, selector)
 
     filter_matrix_conj = tf.transpose(
@@ -188,7 +189,7 @@ def perform_filter_operation(Y, filter_matrix_conj, K, delay):
          Y[:, (delay + K - 1):] - reverb_tail], axis=-1)
 
 
-def single_frequency_wpe(Y, K=10, delay=3, iterations=3, use_inv=False):
+def single_frequency_wpe(Y, K=10, delay=3, iterations=3, mode='inv'):
     """
 
     Args:
@@ -209,7 +210,7 @@ def single_frequency_wpe(Y, K=10, delay=3, iterations=3, use_inv=False):
         )
         filter_matrix_conj = get_filter_matrix_conj(
             Y, inverse_power, correlation_matrix, correlation_vector,
-            K, delay, use_inv=use_inv
+            K, delay, mode=mode
         )
         with jit_scope():
             Y = perform_filter_operation(Y, filter_matrix_conj, K, delay)
@@ -240,7 +241,7 @@ def wpe(
 
 
 def wpe_step(
-        Y, inverse_power, K=10, delay=3, use_inv=False, mask_logits=None,
+        Y, inverse_power, K=10, delay=3, mode='inv', mask_logits=None,
         mask_type='direct'
 ):
     """
@@ -286,5 +287,4 @@ def wpe_step(
             [initial_f, outputs]
         )
 
-        return enhanced_array.stack(), \
-               correlation_matrix, correlation_vector
+        return enhanced_array.stack(), correlation_matrix, correlation_vector
