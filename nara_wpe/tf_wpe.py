@@ -107,7 +107,7 @@ def get_correlations(
 
 def get_filter_matrix_conj(
         Y, inverse_power, correlation_matrix, correlation_vector,
-        K, delay, use_inv=False):
+        K, delay, mode='solve'):
     dyn_shape = tf.shape(Y)
     D = dyn_shape[0]
 
@@ -125,7 +125,7 @@ def get_filter_matrix_conj(
     # This should still be faster and more stable than np.linalg.inv().
     # print(np.linalg.cond(correlation_matrix))
 
-    if use_inv:
+    if mode == 'inv':
         with tf.device('/cpu:0'):
             inv_correlation_matrix = tf.matrix_inverse(correlation_matrix)
         stacked_filter_conj = tf.einsum(
@@ -133,7 +133,16 @@ def get_filter_matrix_conj(
             inv_correlation_matrix, tf.reshape(correlation_vector, (D, D * K))
         )
         stacked_filter_conj = tf.reshape(stacked_filter_conj, (D * D * K, 1))
-    else:
+    elif mode == 'solve':
+        with tf.device('/cpu:0'):
+            stacked_filter_conj = tf.reshape(
+                tf.matrix_solve(
+                    tf.tile(correlation_matrix[None, ...], [D, 1, 1]),
+                    tf.reshape(correlation_vector, (D, D * K, 1))
+                ),
+                (D * D * K, 1)
+            )
+    elif mode == 'solve_ls':
         g = tf.get_default_graph()
         with tf.device('/cpu:0'), g.gradient_override_map(
                 {"MatrixSolveLs": "CustomMatrixSolveLs"}):
@@ -154,6 +163,14 @@ def get_filter_matrix_conj(
 
 
 def perform_filter_operation(Y, filter_matrix_conj, K, delay):
+    """
+
+    :param Y:
+    :param filter_matrix_conj: Shape (K, D, D)
+    :param K:
+    :param delay:
+    :return:
+    """
     dyn_shape = tf.shape(Y)
     T = dyn_shape[1]
 
@@ -200,7 +217,8 @@ def single_frequency_wpe(Y, K=10, delay=3, iterations=3, use_inv=False):
 
 
 def wpe(
-        Y, K=10, delay=3, iterations=3, use_inv=False):
+        Y, K=10, delay=3, iterations=3, mode='solve'
+):
     F = Y.shape.as_list()[0]
     outputs = tf.TensorArray(Y.dtype, size=F)
     initial_f = tf.constant(0)
@@ -210,7 +228,7 @@ def wpe(
 
     def iteration(f, outputs_):
         enhanced = single_frequency_wpe(
-            Y[f], K, delay, iterations, use_inv=use_inv)
+            Y[f], K, delay, iterations, mode=mode)
         outputs_ = outputs_.write(f, enhanced)
         return f + 1, outputs_
 
@@ -255,7 +273,7 @@ def wpe_step(
                 filter_matrix_conj = get_filter_matrix_conj(
                     Y[f], inverse_power[f],
                     correlation_matrix[f], correlation_vector[f],
-                    K, delay, use_inv=use_inv
+                    K, delay, mode=mode
                 )
             with tf.name_scope('apply_filter'):
                 enhanced = perform_filter_operation(

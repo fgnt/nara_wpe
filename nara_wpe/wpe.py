@@ -198,6 +198,14 @@ def get_correlations_v2(Y, inverse_power, K, delay):
 
 
 def get_filter_matrix_conj(correlation_matrix, correlation_vector, K, D):
+    """
+
+    :param correlation_matrix: Shape (K * D * D, K * D * D)
+    :param correlation_vector: Shape (K * D * D,)
+    :param K:
+    :param D:
+    :return:
+    """
     stacked_filter_conj = np.linalg.solve(
         correlation_matrix, correlation_vector
     )
