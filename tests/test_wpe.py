@@ -19,7 +19,6 @@ class TestWPE(unittest.TestCase):
         self.Y = np.random.normal(size=(self.D, self.T)) \
             + 1j * np.random.normal(size=(self.D, self.T))
 
-    @retry(5)
     def test_correlations_v1_vs_v2_toy_example(self):
         K = 3
         delay = 1
@@ -35,7 +34,6 @@ class TestWPE(unittest.TestCase):
         tc.assert_allclose(R_actual, R_desired)
         tc.assert_allclose(r_actual, r_desired)
 
-    @retry(5)
     def test_correlations_v1_vs_v2(self):
         inverse_power = wpe.get_power_inverse(self.Y)
         R_desired, r_desired = wpe.get_correlations(
@@ -72,7 +70,6 @@ class TestWPE(unittest.TestCase):
         actual = wpe.wpe_v4(self.Y, self.K, self.delay)
         tc.assert_allclose(actual, desired)
 
-    @retry(5)
     def test_correlations_narrow_v1_vs_v5(self):
         inverse_power = wpe.get_power_inverse(self.Y)
         R_desired, r_desired = wpe.get_correlations_narrow(
