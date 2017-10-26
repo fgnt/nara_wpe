@@ -14,3 +14,7 @@ pip install --user -e .
 
 Check the example notebook for further details.
 If you download the example notebook, you can listen to the audio examples of input and dereverberated output, too.
+
+## Development history:
+
+Since 2017-09-05 a TensorFlow implementation is added to `nara_wpe`. It is tested with a few test cases against the Numpy implementation.
