@@ -35,7 +35,6 @@ def get_correlations_narrow(Y, inverse_power, K, delay):
     # TODO: Small gains expected, when views are pre-calculated in main.
     # TODO: Larger gains expected with scipy.signal.signaltools.fftconvolve().
     # Code without fft will be easier to port to Chainer.
-    # Shape (D, T - K + 1, K)
     Psi = tf_signal.frame(Y, K, 1, axis=-1)[:, :T - delay - K + 1, ::-1]
     Psi_conj_norm = (
         tf.cast(inverse_power[None, delay + K - 1:, None], Psi.dtype)
@@ -73,7 +72,7 @@ def get_correlations(
     # TODO: Larger gains expected with scipy.signal.signaltools.fftconvolve().
     # Code without fft will be easier to port to Chainer.
     # Shape (D, T - K + 1, K)
-    Y = Y / tf.norm(Y, axis=(-2, -1), keep_dims=True)
+    # Y = Y / tf.norm(Y, axis=(-2, -1), keep_dims=True)
     Psi = tf_signal.frame(Y, K, 1, axis=-1)[..., :T - delay - K + 1, ::-1]
     Psi_conj_norm = (
         tf.cast(inverse_power[:, None, delay + K - 1:, None], Psi.dtype)
@@ -176,14 +175,18 @@ def perform_filter_operation(Y, filter_matrix_conj, K, delay):
     T = dyn_shape[1]
 
     # TODO: Second loop can be removed with using segment_axis. No large gain.
-    reverb_tail = list()
-    for tau_minus_delay in range(0, K):
-        reverb_tail.append(tf.einsum(
+    reverb_tail = 0
+
+    def add_tap(accumulated, tau_minus_delay):
+        return accumulated + tf.einsum(
             'de,dt',
             filter_matrix_conj[tau_minus_delay, :, :],
             Y[:, (K - 1 - tau_minus_delay):(T - delay - tau_minus_delay)]
-        ))
-    reverb_tail = tf.add_n(reverb_tail)
+        )
+    reverb_tail = tf.foldl(
+        add_tap, tf.range(0, K),
+        initializer=tf.zeros_like(Y[:, (delay + K - 1):])
+    )
     return tf.concat(
         [Y[:, :(delay + K - 1)],
          Y[:, (delay + K - 1):] - reverb_tail], axis=-1)
@@ -215,7 +218,7 @@ def single_frequency_wpe(Y, K=10, delay=3, iterations=3, mode='inv'):
         )
         with jit_scope():
             Y = perform_filter_operation(Y, filter_matrix_conj, K, delay)
-    return Y
+    return Y, inverse_power
 
 
 def wpe(
@@ -230,29 +233,21 @@ def wpe(
     :param mode:
     :return:
     """
-    F = Y.shape.as_list()[0]
-    outputs = tf.TensorArray(Y.dtype, size=F)
-    initial_f = tf.constant(0)
+    def iteration(y):
+        enhanced, inverse_power = single_frequency_wpe(
+            y, K, delay, iterations, mode=mode)
+        return (enhanced, inverse_power)
 
-    def should_continue(f, *args):
-        return f < F
-
-    def iteration(f, outputs_):
-        enhanced = single_frequency_wpe(
-            Y[f], K, delay, iterations, mode=mode)
-        outputs_ = outputs_.write(f, enhanced)
-        return f + 1, outputs_
-
-    _, enhanced_array = tf.while_loop(
-        should_continue, iteration, [initial_f, outputs]
+    enhanced, inverse_power = tf.map_fn(
+        iteration, Y, dtype=(Y.dtype, Y.dtype.real_dtype)
     )
 
-    return enhanced_array.stack()
+    return enhanced, inverse_power
 
 
 def wpe_step(
         Y, inverse_power, K=10, delay=3, mode='inv', mask_logits=None,
-        mask_type='direct'
+        mask_type='direct', learnable=False, Y_stats=None
 ):
     """Single WPE step. More suited for backpropagation.
 
@@ -270,34 +265,282 @@ def wpe_step(
     Returns:
     """
     F = Y.shape.as_list()[0]
-    outputs = tf.TensorArray(Y.dtype, size=F)
     initial_f = tf.constant(0)
 
     with tf.name_scope('WPE'):
         with tf.name_scope('correlations'):
+            if Y_stats is None:
+                Y_stats = Y
             correlation_matrix, correlation_vector = get_correlations(
-                Y, inverse_power, K, delay, mask_logits, mask_type=mask_type
+                Y_stats, inverse_power, K, delay, mask_logits,
+                mask_type=mask_type
             )
 
-        def should_continue(f, *args):
-            return f < F
-
-        def iteration(f, outputs_):
+        def step(inp):
+            (Y_f, inverse_power_f,
+                correlation_matrix_f, correlation_vector_f) = inp
             with tf.name_scope('filter_matrix'):
                 filter_matrix_conj = get_filter_matrix_conj(
-                    Y[f], inverse_power[f],
-                    correlation_matrix[f], correlation_vector[f],
+                    Y_f, inverse_power_f,
+                    correlation_matrix_f, correlation_vector_f,
                     K, delay, mode=mode
                 )
             with tf.name_scope('apply_filter'):
                 enhanced = perform_filter_operation(
-                    Y[f], filter_matrix_conj, K, delay)
-            outputs_ = outputs_.write(f, enhanced)
-            return f + 1, outputs_
+                    Y_f, filter_matrix_conj, K, delay)
+            return enhanced, filter_matrix_conj
 
-        _, enhanced_array = tf.while_loop(
-            should_continue, iteration,
-            [initial_f, outputs]
+        enhanced, filter_matrix_conj = tf.map_fn(
+            step,
+            (Y, inverse_power, correlation_matrix, correlation_vector),
+            dtype=(Y.dtype, Y.dtype),
+            parallel_iterations=100
         )
 
-        return enhanced_array.stack(), correlation_matrix, correlation_vector
+        return enhanced, correlation_matrix, correlation_vector
+
+
+def block_wpe_step(
+    Y, inverse_power, K=10, delay=3, mode='inv',
+    block_length_in_seconds=2., forgetting_factor=0.7,
+    fft_shift=256, sampling_rate=16000
+):
+    """Applies wpe in a block-wise fashion.
+
+    Args:
+        Y (tf.Tensor): Complex valued STFT signal with shape (F, D, T)
+        inverse_power ([type]): Power signal with shape (F, T)
+        K (int, optional): Defaults to 10. [description]
+        delay (int, optional): Defaults to 3. [description]
+        mode (str, optional): Defaults to 'inv'. [description]
+        mask_logits ([type], optional): Defaults to None. [description]
+        mask_type (str, optional): Defaults to 'direct'. [description]
+    """
+    frames_per_block = block_length_in_seconds * sampling_rate // fft_shift
+    frames_per_block = tf.cast(frames_per_block, tf.int32)
+    framed_Y = tf_signal.frame(
+        Y, frames_per_block, frames_per_block, pad_end=True)
+    framed_inverse_power = tf_signal.frame(
+        inverse_power, frames_per_block, frames_per_block, pad_end=True)
+    num_blocks = tf.shape(framed_Y)[-2]
+
+    enhanced_arr = tf.TensorArray(
+        framed_Y.dtype, size=num_blocks, clear_after_read=True)
+    start_block = tf.constant(0)
+    correlation_matrix, correlation_vector = get_correlations(
+        framed_Y[..., start_block, :], framed_inverse_power[..., start_block, :],
+        K, delay
+    )
+    num_bins = Y.shape[0]
+    num_channels = Y.shape[1].value
+    if num_channels is None:
+        num_channels = tf.shape(Y)[1]
+    num_frames = tf.shape(Y)[-1]
+
+    def cond(k, *_):
+        return k < num_blocks
+
+    with tf.name_scope('block_WPE'):
+        def block_step(
+                k, enhanced, correlation_matrix_tm1, correlation_vector_tm1):
+
+            def _init_step():
+                return correlation_matrix_tm1, correlation_vector_tm1
+
+            def _update_step():
+                correlation_matrix, correlation_vector = get_correlations(
+                    framed_Y[..., k, :], framed_inverse_power[..., k, :],
+                    K, delay
+                )
+                return (
+                    (1. - forgetting_factor) * correlation_matrix_tm1
+                    + forgetting_factor * correlation_matrix,
+                    (1. - forgetting_factor) * correlation_vector_tm1
+                    + forgetting_factor * correlation_vector
+                )
+
+            correlation_matrix, correlation_vector = tf.case(
+                ((tf.equal(k, 0), _init_step),), default=_update_step
+            )
+
+            def step(inp):
+                (Y_f, inverse_power_f,
+                    correlation_matrix_f, correlation_vector_f) = inp
+                with tf.name_scope('filter_matrix'):
+                    filter_matrix_conj = get_filter_matrix_conj(
+                        Y_f, inverse_power_f,
+                        correlation_matrix_f, correlation_vector_f,
+                        K, delay, mode=mode
+                    )
+                with tf.name_scope('apply_filter'):
+                    enhanced_f = perform_filter_operation(
+                        Y_f, filter_matrix_conj, K, delay)
+                return enhanced_f
+
+            enhanced_block = tf.map_fn(
+                step,
+                (framed_Y[..., k, :], framed_inverse_power[..., k, :],
+                 correlation_matrix, correlation_vector),
+                dtype=framed_Y.dtype,
+                parallel_iterations=100
+            )
+
+            enhanced = enhanced.write(k, enhanced_block)
+            return k + 1, enhanced, correlation_matrix, correlation_vector
+
+        _, enhanced_arr, _, _ = tf.while_loop(
+            cond, block_step,
+            (start_block, enhanced_arr, correlation_matrix, correlation_vector)
+        )
+
+        enhanced = enhanced_arr.stack()
+        enhanced = tf.transpose(enhanced, (1, 2, 0, 3))
+        enhanced = tf.reshape(enhanced, (num_bins, num_channels, -1))
+
+        return enhanced[..., :num_frames]
+
+
+def batched_apply_filter(Y, filter_matrix_conj, num_frames, K=10, delay=3):
+    """Applies WPE filter for a batch of examples.
+
+    Args:
+        Y (tf.Tensor): shape (B, F, D, T)
+        filter_matrix_conj (tf.Tensor): shape (B, F, K, D, D)
+        num_frames (tf.Tensor): shape (B,)
+        K (int, optional): Defaults to 10.
+        delay (int, optional): Defaults to 3.
+
+    Returns:
+        tf.Tensor: dereveberated signal
+    """
+
+    max_frames = tf.reduce_max(num_frames)
+
+    def batch_step(inp):
+        Y_b, frames, filter_matrix_conj_b = inp
+
+        def _pad(x):
+            padding = max_frames - frames
+            zeros = tf.cast(tf.zeros(()), Y_b.dtype)
+            paddings = (len(x.shape) - 1) * ((0, 0),) + ((0, padding),)
+            return tf.pad(x, paddings, constant_values=zeros)
+
+        def freq_step(inp):
+            Y_b_f, filter_matrix_conj_b_f = inp
+            return perform_filter_operation(
+                Y_b_f, filter_matrix_conj_b_f, K, delay)
+
+        enhanced_b = tf.map_fn(
+            freq_step, (Y_b[..., :frames], filter_matrix_conj_b), dtype=Y_b.dtype)
+
+        return _pad(enhanced_b)
+
+    return tf.map_fn(
+        batch_step, (Y, num_frames, filter_matrix_conj),
+        dtype=Y.dtype
+    )
+
+
+def single_example_online_dereverb(
+        observation, power_estimate, alpha, taps=10, delay=2,
+        only_use_final_filters=False, update_power_estimate=False):
+    """
+    Args:
+        observation: (frames, bins, channels)
+        power_estimate: (frames, bins)
+        alpha: scalar
+
+    """
+    num_frames = tf.shape(observation)[0]
+    num_bins = observation.shape[1]
+    num_ch = tf.shape(observation)[-1]
+    dtype = observation.dtype
+    k = tf.constant(0)
+
+    inv_cov_tm1 = tf.eye(num_ch * taps, batch_shape=[num_bins], dtype=dtype)
+    filter_taps_tm1 = tf.zeros((num_bins, num_ch * taps, num_ch), dtype=dtype)
+    enhanced_arr = tf.TensorArray(
+        dtype, size=num_frames, clear_after_read=False)
+
+    def dereverb_step(k_, inv_cov_tm1, filter_taps_tm1, enhanced):
+        def copy_through():
+            enhanced_k = enhanced.write(k_, observation[k_])
+            return k_ + 1, inv_cov_tm1, filter_taps_tm1, enhanced_k
+
+        def update():
+            window = observation[k_ - delay - taps:k_ - delay][::-1]
+            window = tf.reshape(
+                tf.transpose(window, (1, 2, 0)), (-1, taps * num_ch)
+            )
+            window_conj = tf.conj(window)
+            pred = (
+                observation[k_] -
+                tf.einsum('lim,li->lm', tf.conj(filter_taps_tm1), window)
+            )
+
+            if update_power_estimate:
+                cur_power_estimate = tf.reduce_mean(
+                    tf.stack([enhanced.read(k_ - 1), pred], axis=-1),
+                    axis=(-2, -1)
+                )
+            else:
+                cur_power_estimate = power_estimate[k_]
+
+            nominator = tf.einsum('lij,lj->li', inv_cov_tm1, window)
+            denominator = tf.cast(alpha * cur_power_estimate, window.dtype)
+            denominator += tf.einsum('li,li->l', window_conj, nominator)
+            kalman_gain = nominator / denominator[:, None]
+
+            _gain_window = tf.einsum('li,lj->lij', kalman_gain, window_conj)
+            inv_cov_k = 1. / alpha * (
+                inv_cov_tm1 - tf.einsum(
+                    'lij,ljm->lim', _gain_window, inv_cov_tm1)
+            )
+
+            filter_taps_k = (
+                filter_taps_tm1 +
+                tf.einsum('li,lm->lim', kalman_gain, tf.conj(pred))
+            )
+            enhanced_k = enhanced.write(k_, pred)
+            return k_ + 1, inv_cov_k, filter_taps_k, enhanced_k
+
+        return tf.case(
+            [(tf.less(k_, taps + delay), copy_through)], default=update
+        )
+
+    def cond(k, *_):
+        return tf.less(k, num_frames)
+
+    _, _, final_filter_taps, enhanced = tf.while_loop(
+        cond, dereverb_step, (k, inv_cov_tm1, filter_taps_tm1, enhanced_arr))
+
+    # Only for testing / oracle purposes
+    def dereverb_with_filters(k_, filter_taps, enhanced):
+        def copy_through():
+            enhanced_k = enhanced.write(k_, observation[k_])
+            return k_ + 1, filter_taps, enhanced_k
+
+        def update():
+            window = observation[k_ - delay - taps:k_ - delay][::-1]
+            window = tf.reshape(
+                tf.transpose(window, (1, 2, 0)), (-1, taps * num_ch)
+            )
+            pred = (
+                observation[k_] -
+                tf.einsum('lim,li->lm', tf.conj(filter_taps), window)
+            )
+            enhanced_k = enhanced.write(k_, pred)
+            return k_ + 1, filter_taps, enhanced_k
+
+        return tf.case(
+            [(tf.less(k_, taps + delay), copy_through)], default=update
+        )
+
+    if only_use_final_filters:
+        k = tf.constant(0)
+        enhanced_arr = tf.TensorArray(
+            dtype, size=num_frames, clear_after_read=False)
+        _, _, enhanced = tf.while_loop(
+            cond, dereverb_with_filters, (k, final_filter_taps, enhanced_arr))
+
+    return enhanced.stack()
