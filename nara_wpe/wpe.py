@@ -23,7 +23,7 @@ def print_matrix(matrix):
         print()
 
 
-def wpe(Y, K=10, delay=3, iterations=3):
+def wpe(Y, K=10, delay=3, iterations=3, neighbourhood=0):
     """
 
     Args:
@@ -31,13 +31,14 @@ def wpe(Y, K=10, delay=3, iterations=3):
         K: Filter order
         delay: Delay as a guard interval, such that X does not become zero.
         iterations:
+        neighbourhood: Defines the time window for the power estimation.
 
     Returns:
 
     """
     X = np.copy(Y)
     for iteration in range(iterations):
-        inverse_power = get_power_inverse(X)
+        inverse_power = get_power_inverse(X, neighbourhood=neighbourhood)
         filter_matrix_conj = get_filter_matrix_conj_v5(
             Y, inverse_power, K, delay
         )
@@ -101,9 +102,59 @@ def wpe_v5(Y, K=10, delay=3, iterations=3):
     return X
 
 
-def get_power_inverse(signal):
-    """Assumes single frequency bin with shape (D, T)."""
-    power = np.mean(signal.real ** 2 + signal.imag ** 2, axis=0)
+def abs_square(x: np.ndarray):
+    """
+
+    https://github.com/numpy/numpy/issues/9679
+
+    Bug in numpy 1.13.1
+    >> np.ones(32768).imag ** 2
+    Traceback (most recent call last):
+    ...
+    ValueError: output array is read-only
+    >> np.ones(32767).imag ** 2
+    array([ 0.,  0.,  0., ...,  0.,  0.,  0.])
+
+    >>> abs_square(np.ones(32768)).shape
+    (32768,)
+    >>> abs_square(np.ones(32768, dtype=np.complex64)).shape
+    (32768,)
+    """
+
+    if np.iscomplexobj(x):
+        return x.real ** 2 + x.imag ** 2
+    else:
+        return x ** 2
+
+
+def get_power_inverse(signal, neighbourhood=0):
+    """
+    Assumes single frequency bin with shape (D, T).
+
+    >>> s = 1 / np.array([np.arange(1, 6)]*3)
+    >>> get_power_inverse(s)
+    array([ 1.,  4.,  9., 16., 25.])
+    >>> get_power_inverse(s * 0 + 1, 1)
+    array([1., 1., 1., 1., 1.])
+    >>> get_power_inverse(s, 1)
+    array([ 1.        ,  1.6       ,  2.20408163,  7.08196721, 14.04421326])
+    >>> get_power_inverse(s, np.inf)
+    array([3.41620801, 3.41620801, 3.41620801, 3.41620801, 3.41620801])
+    """
+    power = np.mean(abs_square(signal), axis=-2)
+
+    if np.isposinf(neighbourhood):
+        power = np.broadcast_to(np.mean(power, axis=-1, keepdims=True), power.shape)
+    elif neighbourhood > 0:
+        assert int(neighbourhood) == neighbourhood, neighbourhood
+        neighbourhood = int(neighbourhood)
+        import bottleneck as bn
+        # Handle the boarder case correct (i.e. sum() / count)
+        power = bn.move_mean(power, neighbourhood*2+1, min_count=1)
+    elif neighbourhood == 0:
+        pass
+    else:
+        raise ValueError(neighbourhood)
     eps = 1e-10 * np.max(power)
     inverse_power = 1 / np.maximum(power, eps)
     return inverse_power
