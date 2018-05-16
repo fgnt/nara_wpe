@@ -1,3 +1,6 @@
+import functools
+import operator
+
 import numpy as np
 
 
@@ -13,6 +16,179 @@ def segment_axis(x, length, shift, axis=-1):
     strides.insert(axis, shift * strides[axis])
 
     return np.lib.stride_tricks.as_strided(x, strides=strides, shape=shape)
+
+
+def _lstsq(A, B):
+    assert A.shape == B.shape, (A.shape, B.shape)
+    shape = A.shape
+    working_shape = [functools.reduce(operator.mul, [1, *shape[:-2]]), *shape[-2:]]
+    A = A.reshape(working_shape)
+    B = B.reshape(working_shape)
+
+    C = np.zeros_like(A)
+    for i in range(working_shape[0]):
+        C[i], *_ = np.linalg.lstsq(A[i], B[i])
+    return C.reshape(*shape)
+
+
+def _stable_solve(A, B):
+    """
+    Use np.linalg.solve with fallback to np.linalg.lstsq.
+    Equal to np.linalg.lstsq but faster.
+
+    Note: limited currently by A.shape == B.shape
+
+    This function try's np.linalg.solve with independent dimensions,
+    when this is not working the function fall back to np.linalg.solve
+    for each matrix. If one matrix does not work it fall back to
+    np.linalg.lstsq.
+
+    The reason for not using np.linalg.lstsq directly is the execution time.
+    Examples:
+    A and B have the shape (500, 6, 6), than a loop over lstsq takes
+    108 ms and this function 28 ms for the case that one matrix is singular
+    else 1 ms.
+
+    >>> def normal(shape):
+    ...     return np.random.normal(size=shape) + 1j * np.random.normal(size=shape)
+
+    >>> A = normal((6, 6))
+    >>> B = normal((6, 6))
+    >>> C1 = np.linalg.solve(A, B)
+    >>> C2, *_ = np.linalg.lstsq(A, B)
+    >>> C3 = _stable_solve(A, B)
+    >>> C4 = _lstsq(A, B)
+    >>> np.testing.assert_allclose(C1, C2)
+    >>> np.testing.assert_allclose(C1, C3)
+    >>> np.testing.assert_allclose(C1, C4)
+
+    >>> A = np.zeros((6, 6), dtype=np.complex128)
+    >>> B = np.zeros((6, 6), dtype=np.complex128)
+    >>> C1 = np.linalg.solve(A, B)
+    Traceback (most recent call last):
+    ...
+    numpy.linalg.linalg.LinAlgError: Singular matrix
+    >>> C2, *_ = np.linalg.lstsq(A, B)
+    >>> C3 = _stable_solve(A, B)
+    >>> C4 = _lstsq(A, B)
+    >>> np.testing.assert_allclose(C2, C3)
+    >>> np.testing.assert_allclose(C2, C4)
+
+    >>> A = normal((3, 6, 6))
+    >>> B = normal((3, 6, 6))
+    >>> C1 = np.linalg.solve(A, B)
+    >>> C2, *_ = np.linalg.lstsq(A, B)
+    Traceback (most recent call last):
+    ...
+    numpy.linalg.linalg.LinAlgError: 3-dimensional array given. Array must be two-dimensional
+    >>> C3 = _stable_solve(A, B)
+    >>> C4 = _lstsq(A, B)
+    >>> np.testing.assert_allclose(C1, C3)
+    >>> np.testing.assert_allclose(C1, C4)
+
+
+    >>> A[2, 3, :] = 0
+    >>> C1 = np.linalg.solve(A, B)
+    Traceback (most recent call last):
+    ...
+    numpy.linalg.linalg.LinAlgError: Singular matrix
+    >>> C2, *_ = np.linalg.lstsq(A, B)
+    Traceback (most recent call last):
+    ...
+    numpy.linalg.linalg.LinAlgError: 3-dimensional array given. Array must be two-dimensional
+    >>> C3 = _stable_solve(A, B)
+    >>> C4 = _lstsq(A, B)
+    >>> np.testing.assert_allclose(C3, C4)
+
+
+    """
+    assert A.shape[:-2] == B.shape[:-2], (A.shape, B.shape)
+    assert A.shape[-1] == B.shape[-2], (A.shape, B.shape)
+    try:
+        return np.linalg.solve(A, B)
+    except np.linalg.linalg.LinAlgError:
+        shape_A, shape_B = A.shape, B.shape
+        assert shape_A[:-2] == shape_A[:-2]
+        working_shape_A = [functools.reduce(operator.mul, [1, *shape_A[:-2]]),
+                           *shape_A[-2:]]
+        working_shape_B = [functools.reduce(operator.mul, [1, *shape_B[:-2]]),
+                           *shape_B[-2:]]
+        A = A.reshape(working_shape_A)
+        B = B.reshape(working_shape_B)
+
+        C = np.zeros_like(B)
+        for i in range(working_shape_A[0]):
+            # lstsq is much slower, use it only when necessary
+            try:
+                C[i] = np.linalg.solve(A[i], B[i])
+            except np.linalg.linalg.LinAlgError:
+                C[i], *_ = np.linalg.lstsq(A[i], B[i])
+        return C.reshape(*shape_B)
+
+
+def build_y_tilde(Y, K, delay):
+    """
+    >>> T, D = 20, 2
+    >>> Y = np.arange(start=1, stop=T * D + 1).reshape([T, D]).T
+    >>> print(Y)
+    [[ 1  3  5  7  9 11 13 15 17 19 21 23 25 27 29 31 33 35 37 39]
+     [ 2  4  6  8 10 12 14 16 18 20 22 24 26 28 30 32 34 36 38 40]]
+    >>> K, delay = 4, 2
+    >>> Y_tilde = build_y_tilde(Y, K, delay)
+    >>> print(Y_tilde.shape, (K*D, T))
+    (8, 20) (8, 20)
+    >>> print(Y_tilde)
+    [[ 0  0  1  3  5  7  9 11 13 15 17 19 21 23 25 27 29 31 33 35]
+     [ 0  0  2  4  6  8 10 12 14 16 18 20 22 24 26 28 30 32 34 36]
+     [ 0  0  0  1  3  5  7  9 11 13 15 17 19 21 23 25 27 29 31 33]
+     [ 0  0  0  2  4  6  8 10 12 14 16 18 20 22 24 26 28 30 32 34]
+     [ 0  0  0  0  1  3  5  7  9 11 13 15 17 19 21 23 25 27 29 31]
+     [ 0  0  0  0  2  4  6  8 10 12 14 16 18 20 22 24 26 28 30 32]
+     [ 0  0  0  0  0  1  3  5  7  9 11 13 15 17 19 21 23 25 27 29]
+     [ 0  0  0  0  0  2  4  6  8 10 12 14 16 18 20 22 24 26 28 30]]
+    >>> Y_tilde = build_y_tilde(Y, K, 0)
+    >>> print(Y_tilde.shape, (K*D, T))
+    (8, 20) (8, 20)
+    >>> print(Y_tilde)
+    [[ 1  3  5  7  9 11 13 15 17 19 21 23 25 27 29 31 33 35 37 39]
+     [ 2  4  6  8 10 12 14 16 18 20 22 24 26 28 30 32 34 36 38 40]
+     [ 0  1  3  5  7  9 11 13 15 17 19 21 23 25 27 29 31 33 35 37]
+     [ 0  2  4  6  8 10 12 14 16 18 20 22 24 26 28 30 32 34 36 38]
+     [ 0  0  1  3  5  7  9 11 13 15 17 19 21 23 25 27 29 31 33 35]
+     [ 0  0  2  4  6  8 10 12 14 16 18 20 22 24 26 28 30 32 34 36]
+     [ 0  0  0  1  3  5  7  9 11 13 15 17 19 21 23 25 27 29 31 33]
+     [ 0  0  0  2  4  6  8 10 12 14 16 18 20 22 24 26 28 30 32 34]]
+
+    The first columns are zero because of the delay.
+
+    """
+    *S, D, T = Y.shape
+
+    def pad(x, axis=-1, pad_width=K + delay - 1):
+        npad = np.zeros([x.ndim, 2], dtype=np.int)
+        npad[axis, 0] = pad_width
+        x = np.pad(x,
+                   pad_width=npad,
+                   mode='constant',
+                   constant_values=0)
+        return x
+
+    Y_ = segment_axis(pad(Y), K, 1, axis=-1)
+
+    Y_ = np.flip(Y_, axis=-1)
+
+    if delay > 0:
+        Y_ = Y_[..., :-delay, :]
+    # Y_: ... x D x T x K
+    Y_ = np.moveaxis(Y_, -1, -3)
+    # Y_: ... x K x D x T
+    Y_ = np.reshape(Y_, [*S, K * D, T])
+    # Y_: ... x KD x T
+    return Y_
+
+
+def hermite(x):
+    return x.swapaxes(-2, -1).conj()
 
 
 def print_matrix(matrix):
@@ -100,6 +276,80 @@ def wpe_v5(Y, K=10, delay=3, iterations=3):
         )
         X = perform_filter_operation_v4(Y, filter_matrix_conj, K, delay)
     return X
+
+
+def wpe_v6(Y, K=10, delay=3, iterations=3, neighbourhood=0):
+    """
+    Short of wpe_v7.
+
+    """
+    X = np.copy(Y)
+    Y_tilde = build_y_tilde(Y, K, delay)
+    for iteration in range(iterations):
+        inverse_power = get_power_inverse(X, neighbourhood=neighbourhood)
+        Y_tilde_inverse_power = Y_tilde * inverse_power[..., None, :]
+        R = np.matmul(Y_tilde_inverse_power, hermite(Y_tilde))
+        P = np.matmul(Y_tilde_inverse_power, hermite(Y))
+        G = _stable_solve(R, P)
+        X = Y - (hermite(G) @ Y_tilde)
+
+    return X
+
+
+def wpe_v7(Y, K=10, delay=3, iterations=3, neighbourhood=0, mode='pad'):
+    """
+
+    mode=='pad':
+        - Pad Y with zeros on the left for the estimation of the correlation
+          matrix and vector. This value optimizes the cost function of wpe.
+    mode=='cut':
+        - Consider only valid slices of observations for the estimation of the
+          correlation and matrix and vector.
+
+    consider_inital_sampels_in_est
+    """
+    X = Y
+    Y_tilde = build_y_tilde(Y, K, delay)
+
+    if mode == 'pad':
+        s = Ellipsis
+    elif mode == 'cut':
+        s = [Ellipsis, slice(delay + K - 1, None)]
+    else:
+        raise ValueError(mode)
+
+    for iteration in range(iterations):
+        inverse_power = get_power_inverse(X, neighbourhood=neighbourhood)
+        G = get_filter_matrix_v7(Y=Y[s], Y_tilde=Y_tilde[s], inverse_power=inverse_power[s])
+        X = perform_filter_operation_v5(Y=Y, Y_tilde=Y_tilde, filter_matrix=G)
+    return X
+
+
+def wpe_v8(Y, K=10, delay=3, iterations=3, neighbourhood=0, batch_axis=0):
+    # if Y.ndim == 2:
+    #     return wpe_v6(
+    #         Y,
+    #         K=K,
+    #         delay=delay,
+    #         iterations=iterations,
+    #         neighbourhood=neighbourhood,
+    #     )
+    assert Y.ndim == 3, Y.shape
+
+    F = Y.shape[batch_axis]
+    index = [slice(None)] * Y.ndim
+
+    out = []
+    for f in range(F):
+        index[batch_axis] = f
+        out.append(wpe_v6(
+            Y=Y[index],
+            K=K,
+            delay=delay,
+            iterations=iterations,
+            neighbourhood=neighbourhood,
+        ))
+    return np.stack(out, axis=batch_axis)
 
 
 def abs_square(x: np.ndarray):
@@ -248,6 +498,13 @@ def get_correlations_v2(Y, inverse_power, K, delay):
     return correlation_matrix, correlation_vector
 
 
+def get_correlations_v6(Y, Y_tilde, inverse_power):
+    Y_tilde_inverse_power = Y_tilde * inverse_power[..., None, :]
+    R = np.matmul(Y_tilde_inverse_power, hermite(Y_tilde))
+    P = np.matmul(Y_tilde_inverse_power, hermite(Y))
+    return R, P
+
+
 def get_filter_matrix_conj(correlation_matrix, correlation_vector, K, D):
     """
 
@@ -331,6 +588,12 @@ def get_filter_matrix_conj_v6(Y, Psi, inverse_power, K, delay):
     return filter_matrix_conj
 
 
+def get_filter_matrix_v7(Y, Y_tilde, inverse_power):
+    R, P = get_correlations_v6(Y, Y_tilde, inverse_power)
+    G = _stable_solve(R, P)
+    return G
+
+
 def perform_filter_operation(Y, filter_matrix_conj, K, delay):
     _, T = Y.shape
     X = np.copy(Y)  # Can be avoided by providing X from outside.
@@ -353,6 +616,10 @@ def perform_filter_operation_v4(Y, filter_matrix_conj, K, delay):
             filter_matrix_conj[tau_minus_delay, :, :],
             Y[:, (K - 1 - tau_minus_delay):(T - delay - tau_minus_delay)]
         )
+
+
+def perform_filter_operation_v5(Y, Y_tilde, filter_matrix):
+    X = Y - (hermite(filter_matrix) @ Y_tilde)
     return X
 
 
