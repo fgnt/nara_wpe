@@ -170,6 +170,16 @@ def perform_filter_operation(Y, filter_matrix_conj, K, delay):
     :param K:
     :param delay:
     :return:
+
+    >>> D, T, K, delay = 1, 10, 2, 1
+    >>> tf.enable_eager_execution()
+    >>> Y = tf.ones([D, T])
+    >>> filter_matrix_conj = tf.ones([K, D, D])
+    >>> X = perform_filter_operation(Y, filter_matrix_conj, K, delay)
+    >>> X.shape
+    TensorShape([Dimension(1), Dimension(10)])
+    >>> X.numpy()  # Note: The second value should be 0.
+    array([[ 1.,  1., -1., -1., -1., -1., -1., -1., -1., -1.]], dtype=float32)
     """
     dyn_shape = tf.shape(Y)
     T = dyn_shape[1]
@@ -190,6 +200,39 @@ def perform_filter_operation(Y, filter_matrix_conj, K, delay):
     return tf.concat(
         [Y[:, :(delay + K - 1)],
          Y[:, (delay + K - 1):] - reverb_tail], axis=-1)
+
+
+def perform_filter_operation_v2(Y, filter_matrix_conj, K, delay):
+    """
+
+    >>> D, T, K, delay = 1, 10, 2, 1
+    >>> tf.enable_eager_execution()
+    >>> Y = tf.ones([D, T])
+    >>> filter_matrix_conj = tf.ones([K, D, D])
+    >>> X = perform_filter_operation_v2(Y, filter_matrix_conj, K, delay)
+    >>> X.shape
+    TensorShape([Dimension(1), Dimension(10)])
+    >>> X.numpy()
+    array([[ 1.,  0., -1., -1., -1., -1., -1., -1., -1., -1.]], dtype=float32)
+    """
+    dyn_shape = tf.shape(Y)
+    T = dyn_shape[1]
+
+    def add_tap(accumulated, tau_minus_delay):
+        new = tf.einsum(
+            'de,dt',
+            filter_matrix_conj[tau_minus_delay, :, :],
+            Y[:, :(T - delay - tau_minus_delay)]
+        )
+        paddings = tf.convert_to_tensor([[0, 0], [delay + tau_minus_delay, 0]])
+        new = tf.pad(new, paddings, "CONSTANT")
+        return accumulated + new
+
+    reverb_tail = tf.foldl(
+        add_tap, tf.range(0, K),
+        initializer=tf.zeros_like(Y)
+    )
+    return Y - reverb_tail
 
 
 def single_frequency_wpe(Y, K=10, delay=3, iterations=3, mode='inv'):
