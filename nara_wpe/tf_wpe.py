@@ -1,16 +1,72 @@
 import tensorflow as tf
 from tensorflow.contrib import signal as tf_signal
-from tensorflow.contrib.compiler.jit import experimental_jit_scope as jit_scope
-from collections import namedtuple
 
-_MaskTypes = namedtuple(
-    'MaskTypes', ['DIRECT', 'RATIO', 'DIRECT_INV', 'RATIO_INV'])
 
-MASK_TYPES = _MaskTypes('direct', 'ratio', 'direct_inverse', 'ratio_inverse')
+def _batch_wrapper(inner_function, signals, num_frames, time_axis=-1):
+    """Helper function to support batching with signal lenghts respected
+
+    Args:
+        inner_function (function): A function taking the cutted signals as
+
+        signals (tuple): Signals needed for the function. Observation must be
+            in the first place. All signals must have shape (batch, ..., time)
+        num_frames (array): Number of frames for each batch
+
+    Returns:
+        tf.Tensor: Zero padded output of the function.
+    """
+
+    max_frames = tf.reduce_max(num_frames)
+
+    # If we remove the batch dimension the time axis shifts by -1 if positive
+    if time_axis > 0:
+        time_axis -= 1
+
+    def _single_batch(inp):
+        frames = inp[-1]
+        inp = inp[0]
+        with tf.name_scope('single_batch'):
+
+            def _pad(x):
+                padding = max_frames - \
+                    tf.minimum(frames, tf.shape(x)[time_axis])
+                zeros = tf.cast(tf.zeros(()), x.dtype)
+                paddings = x.shape.ndims * [(0, 0), ]
+                paddings[time_axis] = (0, padding)
+                return tf.pad(
+                    x,
+                    paddings,
+                    constant_values=zeros
+                )
+
+            def _slice(x):
+                slices = x.shape.ndims * [slice(None), ]
+                slices[time_axis] = slice(frames)
+                return x[slices]
+
+            enhanced = inner_function(
+                [_slice(i) for i in inp]
+            )
+            return _pad(enhanced)
+
+    out = tf.map_fn(
+        _single_batch, [signals, num_frames], dtype=signals[0].dtype
+    )
+    out.set_shape(signals[0].shape)
+    return out
 
 
 def get_power_inverse(signal, channel_axis=0):
-    """Assumes single frequency bin with shape (D, T)."""
+    """Calculates inverse power for `signal`
+
+    Args:
+        signal (tf.Tensor): Single frequency signal with shape (D, T).
+        channel_axis (int): Axis of the channel dimension. Will be averaged.
+
+    Returns:
+        tf.Tensor: Inverse power with shape (T,)
+
+    """
     power = tf.reduce_mean(
         tf.real(signal) ** 2 + tf.imag(signal) ** 2, axis=channel_axis)
     eps = 1e-10 * tf.reduce_max(power)
@@ -18,81 +74,29 @@ def get_power_inverse(signal, channel_axis=0):
     return inverse_power
 
 
-def get_correlations_narrow(Y, inverse_power, K, delay):
-    """
+def get_correlations(Y, inverse_power, K, delay):
+    """Calculates weighted correlations of a window of length K
 
-    :param Y: [D, T] `Tensor`
-    :param inverse_power: [T] `Tensor`
-    :param K: Number of taps
-    :param delay: delay
-    :return:
-    """
-    dyn_shape = tf.shape(Y)
-    T = dyn_shape[-1]
-    D = dyn_shape[0]
+    Args:
+        Y (tf.Ttensor): Complex-valued STFT signal with shape (F, D, T)
+        inverse_power (tf.Tensor): Weighting factor with shape (F, T)
+        K (int): Lenghts of correlation window
+        delay (int): Delay for the weighting factor
 
-    # TODO: Large gains also expected when precalculating Psi.
-    # TODO: Small gains expected, when views are pre-calculated in main.
-    # TODO: Larger gains expected with scipy.signal.signaltools.fftconvolve().
-    # Code without fft will be easier to port to Chainer.
-    Psi = tf_signal.frame(Y, K, 1, axis=-1)[:, :T - delay - K + 1, ::-1]
-    Psi_conj_norm = (
-        tf.cast(inverse_power[None, delay + K - 1:, None], Psi.dtype)
-        * tf.conj(Psi)
-    )
-
-    correlation_matrix = tf.einsum('dtk,etl->kdle', Psi_conj_norm, Psi)
-    correlation_vector = tf.einsum(
-        'dtk,et->ked', Psi_conj_norm, Y[:, delay + K - 1:]
-    )
-
-    correlation_matrix = tf.reshape(correlation_matrix, (K * D, K * D))
-    return correlation_matrix, correlation_vector
-
-
-def get_correlations(
-        Y, inverse_power, K, delay, mask_logits=None,
-        mask_type=MASK_TYPES.DIRECT
-):
-    """
-
-    :param Y: [F, D, T] `Tensor`
-    :param inverse_power: [F, T] `Tensor`
-    :param K: Number of taps
-    :param delay: delay
-    :return:
+    Returns:
+        tf.Tensor: Correlation matrix of shape (F, K*D, K*D)
+        tf.Tensor: Correlation vector of shape (F, K*D)
     """
     dyn_shape = tf.shape(Y)
     F = dyn_shape[0]
     D = dyn_shape[1]
     T = dyn_shape[2]
 
-    # TODO: Large gains also expected when precalculating Psi.
-    # TODO: Small gains expected, when views are pre-calculated in main.
-    # TODO: Larger gains expected with scipy.signal.signaltools.fftconvolve().
-    # Code without fft will be easier to port to Chainer.
-    # Shape (D, T - K + 1, K)
-    # Y = Y / tf.norm(Y, axis=(-2, -1), keep_dims=True)
     Psi = tf_signal.frame(Y, K, 1, axis=-1)[..., :T - delay - K + 1, ::-1]
     Psi_conj_norm = (
         tf.cast(inverse_power[:, None, delay + K - 1:, None], Psi.dtype)
         * tf.conj(Psi)
     )
-
-    if mask_logits is not None:
-        # Using logits instead of a 'normal' mask is numerical more stable.
-        # There are a few ways to apply the mask:
-        # DIRECT: Mask is limited to values between 0 and 1
-        # RATIO: Mask values are positive and unlimited
-        # *_INV: Use 1-Mask to mask only the reverberation (may be easier
-        # to interpret)
-        logits = tf.cast(mask_logits[:, None, delay + K - 1:, None], Y.dtype)
-        if mask_type == MASK_TYPES.DIRECT or mask_type == MASK_TYPES.DIRECT_INV:
-            scale = -1. if mask_type == MASK_TYPES.DIRECT else 1.
-            Psi_conj_norm += Psi_conj_norm * tf.exp(scale * logits)
-        elif mask_type == MASK_TYPES.RATIO or mask_type == MASK_TYPES.RATIO_INV:
-            scale = -1. if mask_type == MASK_TYPES.DIRECT else 1.
-            Psi_conj_norm *= tf.exp(scale * logits)
 
     correlation_matrix = tf.einsum('fdtk,fetl->fkdle', Psi_conj_norm, Psi)
     correlation_vector = tf.einsum(
@@ -103,25 +107,59 @@ def get_correlations(
     return correlation_matrix, correlation_vector
 
 
+def get_correlations_for_single_frequency(Y, inverse_power, K, delay):
+    """Calculates weighted correlations of a window of length K for one freq.
+
+    Args:
+        Y (tf.Ttensor): Complex-valued STFT signal with shape (D, T)
+        inverse_power (tf.Tensor): Weighting factor with shape (T)
+        K (int): Lenghts of correlation window
+        delay (int): Delay for the weighting factor
+
+    Returns:
+        tf.Tensor: Correlation matrix of shape (K*D, K*D)
+        tf.Tensor: Correlation vector of shape (D, K*D)
+    """
+    correlation_matrix, correlation_vector = get_correlations(
+        Y[None], inverse_power[None], K, delay
+    )
+    return correlation_matrix[0], correlation_vector[0]
+
+
 def get_filter_matrix_conj(
-        Y, inverse_power, correlation_matrix, correlation_vector,
-        K, delay, mode='solve'):
-    dyn_shape = tf.shape(Y)
-    D = dyn_shape[0]
+        Y, correlation_matrix, correlation_vector, K, delay, mode='solve'):
+    """Calculate (conjugate) filter matrix based on correlations for one freq.
+
+    Args:
+        Y (tf.Tensor): Complex-valued STFT signal of shape (D, T)
+        correlation_matrix (tf.Tensor): Correlation matrix (K*D, K*D)
+        correlation_vector (tf.Tensor): Correlation vector (D, K*D)
+        K (int): Number of filter taps
+        delay (int): Delay
+        mode (str, optional): Specifies how R^-1@r is calculate:
+            "inv" calculates the inverse of R directly and then uses matmul
+            "solve" solves Rx=r for x
+
+    Raises:
+        ValueError: Unknown mode specified
+
+    Returns:
+        tf.Tensor: (Conjugate) filter Matrix
+    """
+
+    D = tf.shape(Y)[0]
 
     correlation_vector = tf.reshape(correlation_vector, (D * D * K, 1))
-    selector = tf.reshape(tf.transpose(tf.reshape(
-        tf.range(D * D * K), (D, K, D)
-    ), (1, 0, 2)), (-1,))
-    inv_selector = tf.reshape(tf.transpose(tf.reshape(
-        tf.range(D * D * K), (K, D, D)
-    ), (1, 0, 2)), (-1,))
+    selector = \
+        tf.reshape(
+            tf.transpose(
+                tf.reshape(tf.range(D * D * K), (D, K, D)), (1, 0, 2)), (-1,))
+    inv_selector = \
+        tf.reshape(
+            tf.transpose(
+                tf.reshape(tf.range(D * D * K), (K, D, D)), (1, 0, 2)), (-1,))
 
     correlation_vector = tf.gather(correlation_vector, inv_selector)
-
-    # Idea is to solve matrix inversion independently for each block matrix.
-    # This should still be faster and more stable than np.linalg.inv().
-    # print(np.linalg.cond(correlation_matrix))
 
     if mode == 'inv':
         with tf.device('/cpu:0'):
@@ -140,19 +178,9 @@ def get_filter_matrix_conj(
                 ),
                 (D * D * K, 1)
             )
-    elif mode == 'solve_ls':
-        g = tf.get_default_graph()
-        with tf.device('/cpu:0'), g.gradient_override_map(
-                {"MatrixSolveLs": "CustomMatrixSolveLs"}):
-            stacked_filter_conj = tf.reshape(
-                tf.matrix_solve_ls(
-                    tf.tile(correlation_matrix[None, ...], [D, 1, 1]),
-                    tf.reshape(correlation_vector, (D, D * K, 1)), fast=False
-                ),
-                (D * D * K, 1)
-            )
     else:
-        raise ValueError
+        raise ValueError(
+            'Unknown mode {}. Possible are "inv" and solve"'.format(mode))
     stacked_filter_conj = tf.gather(stacked_filter_conj, selector)
 
     filter_matrix_conj = tf.transpose(
@@ -163,46 +191,6 @@ def get_filter_matrix_conj(
 
 
 def perform_filter_operation(Y, filter_matrix_conj, K, delay):
-    """
-
-    :param Y:
-    :param filter_matrix_conj: Shape (K, D, D)
-    :param K:
-    :param delay:
-    :return:
-
-    >>> D, T, K, delay = 1, 10, 2, 1
-    >>> tf.enable_eager_execution()
-    >>> Y = tf.ones([D, T])
-    >>> filter_matrix_conj = tf.ones([K, D, D])
-    >>> X = perform_filter_operation(Y, filter_matrix_conj, K, delay)
-    >>> X.shape
-    TensorShape([Dimension(1), Dimension(10)])
-    >>> X.numpy()  # Note: The second value should be 0.
-    array([[ 1.,  1., -1., -1., -1., -1., -1., -1., -1., -1.]], dtype=float32)
-    """
-    dyn_shape = tf.shape(Y)
-    T = dyn_shape[1]
-
-    # TODO: Second loop can be removed with using segment_axis. No large gain.
-    reverb_tail = 0
-
-    def add_tap(accumulated, tau_minus_delay):
-        return accumulated + tf.einsum(
-            'de,dt',
-            filter_matrix_conj[tau_minus_delay, :, :],
-            Y[:, (K - 1 - tau_minus_delay):(T - delay - tau_minus_delay)]
-        )
-    reverb_tail = tf.foldl(
-        add_tap, tf.range(0, K),
-        initializer=tf.zeros_like(Y[:, (delay + K - 1):])
-    )
-    return tf.concat(
-        [Y[:, :(delay + K - 1)],
-         Y[:, (delay + K - 1):] - reverb_tail], axis=-1)
-
-
-def perform_filter_operation_v2(Y, filter_matrix_conj, K, delay):
     """
 
     >>> D, T, K, delay = 1, 10, 2, 1
@@ -236,128 +224,189 @@ def perform_filter_operation_v2(Y, filter_matrix_conj, K, delay):
 
 
 def single_frequency_wpe(Y, K=10, delay=3, iterations=3, mode='inv'):
-    """
+    """WPE for a single frequency.
 
     Args:
         Y: Complex valued STFT signal with shape (D, T)
-        K: Filter order
+        K: Number of filter taps
         delay: Delay as a guard interval, such that X does not become zero.
         iterations:
-        mode: Different implementations for inverse in R^-1 r.
+        mode (str, optional): Specifies how R^-1@r is calculate:
+            "inv" calculates the inverse of R directly and then uses matmul
+            "solve" solves Rx=r for x
 
     Returns:
 
     """
 
-    for iteration in range(iterations):
-        with jit_scope():
-            inverse_power = get_power_inverse(Y)
-        correlation_matrix, correlation_vector = get_correlations_narrow(
-            Y, inverse_power, K, delay
-        )
+    enhanced = Y
+    for _ in range(iterations):
+        inverse_power = get_power_inverse(enhanced)
+        correlation_matrix, correlation_vector = \
+            get_correlations_for_single_frequency(Y, inverse_power, K, delay)
         filter_matrix_conj = get_filter_matrix_conj(
-            Y, inverse_power, correlation_matrix, correlation_vector,
+            Y, correlation_matrix, correlation_vector,
             K, delay, mode=mode
         )
-        with jit_scope():
-            Y = perform_filter_operation(Y, filter_matrix_conj, K, delay)
-    return Y, inverse_power
+        enhanced = perform_filter_operation(Y, filter_matrix_conj, K, delay)
+    return enhanced, inverse_power
 
 
-def wpe(
-        Y, K=10, delay=3, iterations=3, mode='inv'
-):
+def wpe(Y, K=10, delay=3, iterations=3, mode='inv'):
     """WPE for all frequencies at once. Use this for regular processing.
 
-    :param Y:
-    :param K:
-    :param delay:
-    :param iterations:
-    :param mode:
-    :return:
+    Args:
+        Y (tf.Tensor): Observed signal with shape (F, D, T)
+        num_frames (tf.Tensor): Number of frames for each signal in the batch 
+        K (int, optional): Defaults to 10. Number of filter taps.
+        delay (int, optional): Defaults to 3.
+        iterations (int, optional): Defaults to 3.
+        mode (str, optional): Specifies how R^-1@r is calculate:
+            "inv" calculates the inverse of R directly and then uses matmul
+            "solve" solves Rx=r for x
+
+    Returns:
+        tf.Tensor: Dereverberated signal
+        tf.Tensor: Latest estimation of the clean speech PSD
     """
-    def iteration(y):
+
+    def iteration_over_frequencies(y):
         enhanced, inverse_power = single_frequency_wpe(
             y, K, delay, iterations, mode=mode)
         return (enhanced, inverse_power)
 
     enhanced, inverse_power = tf.map_fn(
-        iteration, Y, dtype=(Y.dtype, Y.dtype.real_dtype)
+        iteration_over_frequencies, Y, dtype=(Y.dtype, Y.dtype.real_dtype)
     )
 
     return enhanced, inverse_power
 
 
-def wpe_step(
-        Y, inverse_power, K=10, delay=3, mode='inv', mask_logits=None,
-        mask_type='direct', learnable=False, Y_stats=None
-):
+def batched_wpe(Y, num_frames, K=10, delay=3, iterations=3, mode='inv'):
+    """Batched version of iterative WPE.
+
+    Args:
+        Y (tf.Tensor): Observed signal with shape (B, F, D, T)
+        num_frames (tf.Tensor): Number of frames for each signal in the batch 
+        K (int, optional): Defaults to 10. Number of filter taps.
+        delay (int, optional): Defaults to 3.
+        iterations (int, optional): Defaults to 3.
+        mode (str, optional): Specifies how R^-1@r is calculate:
+            "inv" calculates the inverse of R directly and then uses matmul
+            "solve" solves Rx=r for x
+
+    Returns:
+        tf.Tensor: Dereverberated signal.
+    """
+
+    def _inner_func(signals):
+        out, _ = wpe(signals[0], K, delay, iterations, mode)
+        return out
+
+    return _batch_wrapper(_inner_func, [Y], num_frames)
+
+
+def wpe_step(Y, inverse_power, K=10, delay=3, mode='inv', Y_stats=None):
     """Single WPE step. More suited for backpropagation.
 
     Args:
-        Y: Complex valued STFT signal with shape (F, D, T)
-        inverse_power: Power signal with shape (F, T)
-        K: Filter order
-        delay: Delay as a guard interval, such that X does not become zero.
-        mode: Different implementations for inverse in R^-1 r.
-        mask_logits: If provided, is used to modify the observed inverse power
-            based on the mask_type selector provided.
-        mask_type: Different ways how to apply the mask_logits to the
-            inverse power.
+        Y (tf.Tensor): Complex valued STFT signal with shape (F, D, T)
+        inverse_power (tf.Tensor): Power signal with shape (F, T)
+        K (int, optional): Filter order
+        delay (int, optional): Delay as a guard interval, such that X does not become zero.
+        mode (str, optional): Specifies how R^-1@r is calculate:
+            "inv" calculates the inverse of R directly and then uses matmul
+            "solve" solves Rx=r for x
+        Y_stats (tf.Tensor or None, optional): Complex valued STFT signal
+            with shape (F, D, T) use to calculate the signal statistics
+            (i.e. correlation matrix/vector).
+            If None, Y is used. Otherwise it's usually a segment of Y
 
     Returns:
+        Dereverberated signal of shape (F, D, T)
     """
-    F = Y.shape.as_list()[0]
-    initial_f = tf.constant(0)
-
     with tf.name_scope('WPE'):
         with tf.name_scope('correlations'):
             if Y_stats is None:
                 Y_stats = Y
             correlation_matrix, correlation_vector = get_correlations(
-                Y_stats, inverse_power, K, delay, mask_logits,
-                mask_type=mask_type
+                Y_stats, inverse_power, K, delay
             )
 
         def step(inp):
-            (Y_f, inverse_power_f,
-                correlation_matrix_f, correlation_vector_f) = inp
+            (Y_f, correlation_matrix_f, correlation_vector_f) = inp
             with tf.name_scope('filter_matrix'):
                 filter_matrix_conj = get_filter_matrix_conj(
-                    Y_f, inverse_power_f,
+                    Y_f,
                     correlation_matrix_f, correlation_vector_f,
                     K, delay, mode=mode
                 )
             with tf.name_scope('apply_filter'):
                 enhanced = perform_filter_operation(
                     Y_f, filter_matrix_conj, K, delay)
-            return enhanced, filter_matrix_conj
+            return enhanced
 
-        enhanced, filter_matrix_conj = tf.map_fn(
+        enhanced = tf.map_fn(
             step,
-            (Y, inverse_power, correlation_matrix, correlation_vector),
-            dtype=(Y.dtype, Y.dtype),
+            (Y, correlation_matrix, correlation_vector),
+            dtype=Y.dtype,
             parallel_iterations=100
         )
 
-        return enhanced, correlation_matrix, correlation_vector
+        return enhanced
+
+
+def batched_wpe_step(
+        Y, inverse_power, num_frames, K=10, delay=3, mode='inv', Y_stats=None):
+    """Batched single WPE step. More suited for backpropagation.
+
+    Args:
+        Y (tf.Tensor): Complex valued STFT signal with shape (B, F, D, T)
+        inverse_power (tf.Tensor): Power signal with shape (B, F, T)
+        num_frames (tf.Tensor): Number of frames for each signal in the batch 
+        K (int, optional): Filter order
+        delay (int, optional): Delay as a guard interval, such that X does not become zero.
+        mode (str, optional): Specifies how R^-1@r is calculate:
+            "inv" calculates the inverse of R directly and then uses matmul
+            "solve" solves Rx=r for x
+        Y_stats (tf.Tensor or None, optional): Complex valued STFT signal
+            with shape (F, D, T) use to calculate the signal statistics
+            (i.e. correlation matrix/vector).
+            If None, Y is used. Otherwise it's usually a segment of Y
+
+    Returns:
+        Dereverberated signal of shape B, (F, D, T)
+    """
+    def _inner_func(signals):
+        out = wpe_step(*signals[:2], K, delay, mode, signals[-1])
+        return out
+
+    if Y_stats is None:
+        Y_stats = Y
+
+    return _batch_wrapper(_inner_func, [Y, inverse_power, Y_stats], num_frames)
 
 
 def block_wpe_step(
-    Y, inverse_power, K=10, delay=3, mode='inv',
-    block_length_in_seconds=2., forgetting_factor=0.7,
-    fft_shift=256, sampling_rate=16000
-):
+        Y, inverse_power, K=10, delay=3, mode='inv',
+        block_length_in_seconds=2., forgetting_factor=0.7,
+        fft_shift=256, sampling_rate=16000):
     """Applies wpe in a block-wise fashion.
 
     Args:
         Y (tf.Tensor): Complex valued STFT signal with shape (F, D, T)
-        inverse_power ([type]): Power signal with shape (F, T)
-        K (int, optional): Defaults to 10. [description]
-        delay (int, optional): Defaults to 3. [description]
-        mode (str, optional): Defaults to 'inv'. [description]
-        mask_logits ([type], optional): Defaults to None. [description]
-        mask_type (str, optional): Defaults to 'direct'. [description]
+        inverse_power (tf.Tensor): Power signal with shape (F, T)
+        K (int, optional): Defaults to 10.
+        delay (int, optional): Defaults to 3.
+        mode (str, optional): Specifies how R^-1@r is calculate:
+            "inv" calculates the inverse of R directly and then uses matmul
+            "solve" solves Rx=r for x
+        block_length_in_seconds (float, optional): Length of each block in 
+            seconds
+        forgetting_factor (float, optional): Forgetting factor for the signal
+            statistics between the blocks
+        fft_shift (int, optional): Shift used for the STFT.
+        sampling_rate (int, optional): Sampling rate of the observed signal.
     """
     frames_per_block = block_length_in_seconds * sampling_rate // fft_shift
     frames_per_block = tf.cast(frames_per_block, tf.int32)
@@ -411,7 +460,7 @@ def block_wpe_step(
                     correlation_matrix_f, correlation_vector_f) = inp
                 with tf.name_scope('filter_matrix'):
                     filter_matrix_conj = get_filter_matrix_conj(
-                        Y_f, inverse_power_f,
+                        Y_f,
                         correlation_matrix_f, correlation_vector_f,
                         K, delay, mode=mode
                     )
@@ -443,147 +492,153 @@ def block_wpe_step(
         return enhanced[..., :num_frames]
 
 
-def batched_apply_filter(Y, filter_matrix_conj, num_frames, K=10, delay=3):
-    """Applies WPE filter for a batch of examples.
+def batched_block_wpe_step(
+        Y, inverse_power, num_frames, K=10, delay=3, mode='inv',
+        block_length_in_seconds=2., forgetting_factor=0.7,
+        fft_shift=256, sampling_rate=16000):
+    """Batched single WPE step. More suited for backpropagation.
 
     Args:
-        Y (tf.Tensor): shape (B, F, D, T)
-        filter_matrix_conj (tf.Tensor): shape (B, F, K, D, D)
-        num_frames (tf.Tensor): shape (B,)
-        K (int, optional): Defaults to 10.
-        delay (int, optional): Defaults to 3.
+        Y (tf.Tensor): Complex valued STFT signal with shape (B, F, D, T)
+        inverse_power (tf.Tensor): Power signal with shape (B, F, T)
+        num_frames (tf.Tensor): Number of frames for each signal in the batch 
+        K (int, optional): Filter order
+        delay (int, optional): Delay as a guard interval, such that X does not become zero.
+        mode (str, optional): Specifies how R^-1@r is calculate:
+            "inv" calculates the inverse of R directly and then uses matmul
+            "solve" solves Rx=r for x
+        block_length_in_seconds (float, optional): Length of each block in 
+            seconds
+        forgetting_factor (float, optional): Forgetting factor for the signal
+            statistics between the blocks
+        fft_shift (int, optional): Shift used for the STFT.
+        sampling_rate (int, optional): Sampling rate of the observed signal.
 
     Returns:
-        tf.Tensor: dereveberated signal
+        Dereverberated signal of shape B, (F, D, T)
     """
+    def _inner_func(signals):
+        out = block_wpe_step(
+            *signals, K, delay,
+            mode, block_length_in_seconds, forgetting_factor,
+            fft_shift, sampling_rate)
+        return out
 
-    max_frames = tf.reduce_max(num_frames)
-
-    def batch_step(inp):
-        Y_b, frames, filter_matrix_conj_b = inp
-
-        def _pad(x):
-            padding = max_frames - frames
-            zeros = tf.cast(tf.zeros(()), Y_b.dtype)
-            paddings = (len(x.shape) - 1) * ((0, 0),) + ((0, padding),)
-            return tf.pad(x, paddings, constant_values=zeros)
-
-        def freq_step(inp):
-            Y_b_f, filter_matrix_conj_b_f = inp
-            return perform_filter_operation(
-                Y_b_f, filter_matrix_conj_b_f, K, delay)
-
-        enhanced_b = tf.map_fn(
-            freq_step, (Y_b[..., :frames], filter_matrix_conj_b), dtype=Y_b.dtype)
-
-        return _pad(enhanced_b)
-
-    return tf.map_fn(
-        batch_step, (Y, num_frames, filter_matrix_conj),
-        dtype=Y.dtype
-    )
+    return _batch_wrapper(_inner_func, [Y, inverse_power], num_frames)
 
 
-def single_example_online_dereverb(
-        observation, power_estimate, alpha, taps=10, delay=2,
-        only_use_final_filters=False, update_power_estimate=False):
-    """
+def recursive_wpe(
+        Y, power_estimate, alpha, K=10, delay=2,
+        only_use_final_filters=False):
+    """Applies WPE in a framewise recursive fashion.
+
     Args:
-        observation: (frames, bins, channels)
-        power_estimate: (frames, bins)
-        alpha: scalar
+        Y (tf.Tensor): Observed signal of shape (T, F, D)
+        power_estimate (tf.Tensor): Estimate for the clean signal PSD of shape (T, F)
+        alpha (float): Smoothing factor for the recursion
+        K (int, optional): Number of filter taps.
+        delay (int, optional): Delay
+        only_use_final_filters (bool, optional): Applies only the final 
+            estimated filter coefficients to the whole signal. This is for
+            debugging purposes only and makes this method a offline one.
 
+    Returns:
+        tf.Tensor: Enhanced signal
     """
-    num_frames = tf.shape(observation)[0]
-    num_bins = observation.shape[1]
-    num_ch = tf.shape(observation)[-1]
-    dtype = observation.dtype
-    k = tf.constant(0)
 
-    inv_cov_tm1 = tf.eye(num_ch * taps, batch_shape=[num_bins], dtype=dtype)
-    filter_taps_tm1 = tf.zeros((num_bins, num_ch * taps, num_ch), dtype=dtype)
-    enhanced_arr = tf.TensorArray(
-        dtype, size=num_frames, clear_after_read=False)
+    num_frames = tf.shape(Y)[0]
+    num_bins = Y.shape[1]
+    num_ch = tf.shape(Y)[-1]
+    dtype = Y.dtype
+    k = tf.constant(0) + delay + K
+
+    inv_cov_tm1 = tf.eye(num_ch * K, batch_shape=[num_bins], dtype=dtype)
+    filter_taps_tm1 = tf.zeros((num_bins, num_ch * K, num_ch), dtype=dtype)
+    enhanced_arr = tf.TensorArray(dtype, size=num_frames, name='dereverberated')
+    Y = tf.pad(Y, ((delay + K, 0), (0, 0), (0, 0)))
 
     def dereverb_step(k_, inv_cov_tm1, filter_taps_tm1, enhanced):
-        def copy_through():
-            enhanced_k = enhanced.write(k_, observation[k_])
-            return k_ + 1, inv_cov_tm1, filter_taps_tm1, enhanced_k
-
-        def update():
-            window = observation[k_ - delay - taps:k_ - delay][::-1]
-            window = tf.reshape(
-                tf.transpose(window, (1, 2, 0)), (-1, taps * num_ch)
-            )
-            window_conj = tf.conj(window)
-            pred = (
-                observation[k_] -
-                tf.einsum('lim,li->lm', tf.conj(filter_taps_tm1), window)
-            )
-
-            if update_power_estimate:
-                cur_power_estimate = tf.reduce_mean(
-                    tf.stack([enhanced.read(k_ - 1), pred], axis=-1),
-                    axis=(-2, -1)
-                )
-            else:
-                cur_power_estimate = power_estimate[k_]
-
-            nominator = tf.einsum('lij,lj->li', inv_cov_tm1, window)
-            denominator = tf.cast(alpha * cur_power_estimate, window.dtype)
-            denominator += tf.einsum('li,li->l', window_conj, nominator)
-            kalman_gain = nominator / denominator[:, None]
-
-            _gain_window = tf.einsum('li,lj->lij', kalman_gain, window_conj)
-            inv_cov_k = 1. / alpha * (
-                inv_cov_tm1 - tf.einsum(
-                    'lij,ljm->lim', _gain_window, inv_cov_tm1)
-            )
-
-            filter_taps_k = (
-                filter_taps_tm1 +
-                tf.einsum('li,lm->lim', kalman_gain, tf.conj(pred))
-            )
-            enhanced_k = enhanced.write(k_, pred)
-            return k_ + 1, inv_cov_k, filter_taps_k, enhanced_k
-
-        return tf.case(
-            [(tf.less(k_, taps + delay), copy_through)], default=update
+        pos = k_ - delay - K
+        window = Y[pos:k_ - delay][::-1]
+        window = tf.reshape(
+            tf.transpose(window, (1, 2, 0)), (num_bins, K * num_ch)
+        )
+        window_conj = tf.conj(window)
+        pred = (
+            Y[k_] -
+            tf.einsum('lim,li->lm', tf.conj(filter_taps_tm1), window)
         )
 
+        cur_power_estimate = power_estimate[pos]
+        nominator = tf.einsum('lij,lj->li', inv_cov_tm1, window)
+        denominator = tf.cast(alpha * cur_power_estimate, window.dtype)
+        denominator += tf.einsum('li,li->l', window_conj, nominator)
+        kalman_gain = nominator / denominator[:, None]
+
+        _gain_window = tf.einsum('li,lj->lij', kalman_gain, window_conj)
+        inv_cov_k = 1. / alpha * (
+            inv_cov_tm1 - tf.einsum(
+                'lij,ljm->lim', _gain_window, inv_cov_tm1)
+        )
+
+        filter_taps_k = (
+            filter_taps_tm1 +
+            tf.einsum('li,lm->lim', kalman_gain, tf.conj(pred))
+        )
+        enhanced_k = enhanced.write(pos, pred)
+        return k_ + 1, inv_cov_k, filter_taps_k, enhanced_k
+
     def cond(k, *_):
-        return tf.less(k, num_frames)
+        return tf.less(k, num_frames + delay + K)
 
     _, _, final_filter_taps, enhanced = tf.while_loop(
         cond, dereverb_step, (k, inv_cov_tm1, filter_taps_tm1, enhanced_arr))
 
     # Only for testing / oracle purposes
     def dereverb_with_filters(k_, filter_taps, enhanced):
-        def copy_through():
-            enhanced_k = enhanced.write(k_, observation[k_])
-            return k_ + 1, filter_taps, enhanced_k
-
-        def update():
-            window = observation[k_ - delay - taps:k_ - delay][::-1]
-            window = tf.reshape(
-                tf.transpose(window, (1, 2, 0)), (-1, taps * num_ch)
-            )
-            pred = (
-                observation[k_] -
-                tf.einsum('lim,li->lm', tf.conj(filter_taps), window)
-            )
-            enhanced_k = enhanced.write(k_, pred)
-            return k_ + 1, filter_taps, enhanced_k
-
-        return tf.case(
-            [(tf.less(k_, taps + delay), copy_through)], default=update
+        window = Y[k_ - delay - K:k_ - delay][::-1]
+        window = tf.reshape(
+            tf.transpose(window, (1, 2, 0)), (-1, K * num_ch)
         )
+        pred = (
+            Y[k_] -
+            tf.einsum('lim,li->lm', tf.conj(filter_taps), window)
+        )
+        enhanced_k = enhanced.write(k_ - delay - K, pred)
+        return k_ + 1, filter_taps, enhanced_k
 
     if only_use_final_filters:
-        k = tf.constant(0)
-        enhanced_arr = tf.TensorArray(
-            dtype, size=num_frames, clear_after_read=False)
+        k = tf.constant(0) + delay + K
+        enhanced_arr = tf.TensorArray(dtype, size=num_frames)
         _, _, enhanced = tf.while_loop(
             cond, dereverb_with_filters, (k, final_filter_taps, enhanced_arr))
 
     return enhanced.stack()
+
+
+def batched_recursive_wpe(
+        Y, power_estimate, alpha, num_frames, K=10, delay=2,
+        only_use_final_filters=False):
+    """Batched single WPE step. More suited for backpropagation.
+
+    Args:
+        Y (tf.Tensor): Observed signal of shape (B, T, F, D)
+        power_estimate (tf.Tensor): Estimate for the clean signal PSD of shape (B, T, F)
+        alpha (float): Smoothing factor for the recursion
+        num_frames (tf.Tensor): Number of frames for each signal in the batch 
+        K (int, optional): Number of filter taps.
+        delay (int, optional): Delay
+        only_use_final_filters (bool, optional): Applies only the final 
+            estimated filter coefficients to the whole signal. This is for
+            debugging purposes only and makes this method a offline one.
+
+    Returns:
+        Dereverberated signal of shape (B, T, F, D)
+    """
+    def _inner_func(signals):
+        out = recursive_wpe(
+            *signals, alpha, K, delay, only_use_final_filters)
+        return out
+
+    return _batch_wrapper(
+        _inner_func, [Y, power_estimate], num_frames, time_axis=1)
