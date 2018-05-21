@@ -527,6 +527,55 @@ def batched_block_wpe_step(
     return _batch_wrapper(_inner_func, [Y, inverse_power], num_frames)
 
 
+def online_dereverb_step(
+        input_buffer, power_estimate, inv_cov_tm1, filter_taps_tm1,
+        alpha, K, delay
+    ):
+    """One step of online dereverberation
+    
+    Args:
+        input_buffer (tf.Tensor): Buffer of shape (K+delay+1, F, D)
+        power_estimate (tf.Tensor): Estimate for the current PSD
+        inv_cov_tm1 (tf.Tensor): Current estimate of R^-1
+        filter_taps_tm1 (tf.Tensor): Current estimate of filter taps
+        alpha (float): Smoothing factor
+        K (int): Number of filter taps
+        delay (int): Delay in frames
+
+    Returns:
+        tf.Tensor: Dereverberated frame of shape (F, D)
+        tf.Tensor: Updated estimate of R^-1
+        tf.Tensor: Updated estimate of the filter taps
+    """
+    num_bins = input_buffer.shape[-2]
+    num_ch = tf.shape(input_buffer)[-1]
+    window = input_buffer[:-delay - 1][::-1]
+    window = tf.reshape(
+        tf.transpose(window, (1, 2, 0)), (num_bins, K * num_ch)
+    )
+    window_conj = tf.conj(window)
+    pred = (
+        input_buffer[-1] -
+        tf.einsum('lim,li->lm', tf.conj(filter_taps_tm1), window)
+    )
+
+    nominator = tf.einsum('lij,lj->li', inv_cov_tm1, window)
+    denominator = tf.cast(alpha * power_estimate, window.dtype)
+    denominator += tf.einsum('li,li->l', window_conj, nominator)
+    kalman_gain = nominator / denominator[:, None]
+
+    _gain_window = tf.einsum('li,lj->lij', kalman_gain, window_conj)
+    inv_cov_k = 1. / alpha * (
+        inv_cov_tm1 - tf.einsum(
+            'lij,ljm->lim', _gain_window, inv_cov_tm1)
+    )
+
+    filter_taps_k = (
+        filter_taps_tm1 +
+        tf.einsum('li,lm->lim', kalman_gain, tf.conj(pred))
+    )
+    return pred, inv_cov_k, filter_taps_k 
+
 def recursive_wpe(
         Y, power_estimate, alpha, K=10, delay=2,
         only_use_final_filters=False):
@@ -550,7 +599,7 @@ def recursive_wpe(
     num_bins = Y.shape[1]
     num_ch = tf.shape(Y)[-1]
     dtype = Y.dtype
-    k = tf.constant(0) + delay + K
+    k = delay + K
 
     inv_cov_tm1 = tf.eye(num_ch * K, batch_shape=[num_bins], dtype=dtype)
     filter_taps_tm1 = tf.zeros((num_bins, num_ch * K, num_ch), dtype=dtype)
@@ -559,31 +608,10 @@ def recursive_wpe(
 
     def dereverb_step(k_, inv_cov_tm1, filter_taps_tm1, enhanced):
         pos = k_ - delay - K
-        window = Y[pos:k_ - delay][::-1]
-        window = tf.reshape(
-            tf.transpose(window, (1, 2, 0)), (num_bins, K * num_ch)
-        )
-        window_conj = tf.conj(window)
-        pred = (
-            Y[k_] -
-            tf.einsum('lim,li->lm', tf.conj(filter_taps_tm1), window)
-        )
-
-        cur_power_estimate = power_estimate[pos]
-        nominator = tf.einsum('lij,lj->li', inv_cov_tm1, window)
-        denominator = tf.cast(alpha * cur_power_estimate, window.dtype)
-        denominator += tf.einsum('li,li->l', window_conj, nominator)
-        kalman_gain = nominator / denominator[:, None]
-
-        _gain_window = tf.einsum('li,lj->lij', kalman_gain, window_conj)
-        inv_cov_k = 1. / alpha * (
-            inv_cov_tm1 - tf.einsum(
-                'lij,ljm->lim', _gain_window, inv_cov_tm1)
-        )
-
-        filter_taps_k = (
-            filter_taps_tm1 +
-            tf.einsum('li,lm->lim', kalman_gain, tf.conj(pred))
+        input_buffer = Y[pos:k_ + 1]
+        pred, inv_cov_k, filter_taps_k = online_dereverb_step(
+            input_buffer, power_estimate[pos],
+            inv_cov_tm1, filter_taps_tm1, alpha, K, delay
         )
         enhanced_k = enhanced.write(pos, pred)
         return k_ + 1, inv_cov_k, filter_taps_k, enhanced_k
