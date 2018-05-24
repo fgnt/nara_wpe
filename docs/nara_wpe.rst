@@ -8,7 +8,6 @@ Submodules
 
    nara_wpe.benchmark_online_wpe
    nara_wpe.gradient_overrides
-   nara_wpe.test
    nara_wpe.test_utils
    nara_wpe.tf_wpe
    nara_wpe.utils
