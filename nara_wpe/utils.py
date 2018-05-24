@@ -371,7 +371,7 @@ def _biorthogonal_window_brute_force(analysis_window, shift,
 _biorthogonal_window_fastest = _biorthogonal_window_brute_force
 
 
-def istft_loop(
+def istft(
         stft_signal,
         size=1024, shift=256,
         time_dim=-2, freq_dim=-1,
@@ -410,7 +410,7 @@ def istft_loop(
     shape = stft_signal.shape
     stft_signal = convert_for_mat_loopy(stft_signal, time_dim, freq_dim)
 
-    time_signal = np.array([istft(
+    time_signal = np.array([istft_single_channel(
         stft_signal[i, :, :], window=window, size=size, shift=shift
     ) for i in range(stft_signal.shape[0])])
     shape = list(shape)
@@ -421,7 +421,7 @@ def istft_loop(
     return np.squeeze(time_signal, axis=time_dim)
 
 
-def istft(stft_signal, size=1024, shift=256,
+def istft_single_channel(stft_signal, size=1024, shift=256,
           window=signal.blackman, fading=True, window_length=None,
           use_amplitude_for_biorthogonal_window=False,
           disable_sythesis_window=False):
