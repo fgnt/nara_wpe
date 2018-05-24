@@ -14,7 +14,8 @@ from nara_wpe.wpe import segment_axis as segment_axis_v2
 
 
 def segment_axis(a, length, overlap=0, axis=None, end='cut', endvalue=0):
-    """ Generate a new array that chops the given array along the given axis into overlapping frames.
+    """ Generate a new array that chops the given array along the given axis
+     into overlapping frames.
 
     :param a: The array to segment
     :param length: The length of each frame
@@ -32,8 +33,6 @@ def segment_axis(a, length, overlap=0, axis=None, end='cut', endvalue=0):
     unevenly strided and being flattened or because end is set to
     'pad' or 'wrap').
 
-    Example
-    -------
     >>> segment_axis(np.arange(10), 4, 2)
     array([[0, 1, 2, 3],
            [2, 3, 4, 5],
@@ -143,33 +142,17 @@ def segment_axis(a, length, overlap=0, axis=None, end='cut', endvalue=0):
 def roll_zeropad(a, shift, axis=None):
     """
     Roll array elements along a given axis.
-
     Elements off the end of the array are treated as zeros.
 
-    Parameters
-    ----------
-    a : array_like
-        Input array.
-    shift : int
+    :param a: array_like
+    :param shift: Scalar int
         The number of places by which elements are shifted.
-    axis : int, optional
+    :param axis: int, optional
         The axis along which elements are shifted.  By default, the array
         is flattened before shifting, after which the original
         shape is restored.
+    :return:
 
-    Returns
-    -------
-    res : ndarray
-        Output array, with the same shape as `a`.
-
-    See Also
-    --------
-    roll     : Elements that roll off one end come back on the other.
-    rollaxis : Roll the specified axis backwards, until it lies in a
-               given position.
-
-    Examples
-    --------
     >>> x = np.arange(10)
     >>> roll_zeropad(x, 2)
     array([0, 0, 0, 1, 2, 3, 4, 5, 6, 7])
@@ -208,7 +191,6 @@ def roll_zeropad(a, shift, axis=None):
     >>> roll_zeropad(x2, 0)
     array([[0, 1, 2, 3, 4],
            [5, 6, 7, 8, 9]])
-
     """
     a = np.asanyarray(a)
     if shift == 0:
