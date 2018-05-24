@@ -229,26 +229,45 @@ def print_matrix(matrix):
         print()
 
 
-def wpe(Y, K=10, delay=3, iterations=3, neighbourhood=0):
+def wpe_v0(Y, K=10, delay=3, iterations=3, psd_context=0, statistics_mode='full'):
     """
 
     Args:
-        Y: Complex valued STFT signal with shape (D, T)
+        Y: Complex valued STFT signal with shape (F, D, T) or (D, T).
         K: Filter order
         delay: Delay as a guard interval, such that X does not become zero.
         iterations:
-        neighbourhood: Defines the time window for the power estimation.
+        psd_context: Defines the number of elements in the time window
+            to improve the power estimation. Total number of elements will
+            be (psd_context + 1 + psd_context).
+        statistics_mode: Either 'full' or 'valid'.
+            'full': Pad the observation with zeros on the left for the
+            estimation of the correlation matrix and vector.
+            'valid': Only calculate correlation matrix and vector on valid
+            slices of the observation.
 
     Returns:
+        Estimated signal with same shape as Y.
 
     """
     X = np.copy(Y)
-    for iteration in range(iterations):
-        inverse_power = get_power_inverse(X, neighbourhood=neighbourhood)
-        filter_matrix_conj = get_filter_matrix_conj_v5(
-            Y, inverse_power, K, delay
-        )
-        X = perform_filter_operation_v4(Y, filter_matrix_conj, K, delay)
+    if Y.ndim == 2:
+        for iteration in range(iterations):
+            inverse_power = get_power_inverse(X, neighborhood=psd_context)
+            filter_matrix_conj = get_filter_matrix_conj_v5(
+                Y, inverse_power, K, delay
+            )
+            X = perform_filter_operation_v4(Y, filter_matrix_conj, K, delay)
+    elif Y.ndim == 3:
+        F = Y.shape[0]
+        for f in range(F):
+            X[f, :, :] = wpe(
+                Y[f, :, :],
+                K=K, delay=delay, iterations=iterations,
+                psd_context=psd_context, statistics_mode=statistics_mode
+            )
+    else:
+        raise NotImplementedError('Input shape is to be (F, D, T) or (D, T).')
     return X
 
 
@@ -308,7 +327,7 @@ def wpe_v5(Y, K=10, delay=3, iterations=3):
     return X
 
 
-def wpe_v6(Y, K=10, delay=3, iterations=3, neighbourhood=0):
+def wpe_v6(Y, K=10, delay=3, iterations=3, neighborhood=0):
     """
     Short of wpe_v7.
 
@@ -316,7 +335,7 @@ def wpe_v6(Y, K=10, delay=3, iterations=3, neighbourhood=0):
     X = np.copy(Y)
     Y_tilde = build_y_tilde(Y, K, delay)
     for iteration in range(iterations):
-        inverse_power = get_power_inverse(X, neighbourhood=neighbourhood)
+        inverse_power = get_power_inverse(X, neighborhood=neighborhood)
         Y_tilde_inverse_power = Y_tilde * inverse_power[..., None, :]
         R = np.matmul(Y_tilde_inverse_power, hermite(Y_tilde))
         P = np.matmul(Y_tilde_inverse_power, hermite(Y))
@@ -326,7 +345,7 @@ def wpe_v6(Y, K=10, delay=3, iterations=3, neighbourhood=0):
     return X
 
 
-def wpe_v7(Y, K=10, delay=3, iterations=3, neighbourhood=0, mode='pad'):
+def wpe_v7(Y, K=10, delay=3, iterations=3, neighborhood=0, mode='cut'):
     """
 
     mode=='pad':
@@ -349,20 +368,20 @@ def wpe_v7(Y, K=10, delay=3, iterations=3, neighbourhood=0, mode='pad'):
         raise ValueError(mode)
 
     for iteration in range(iterations):
-        inverse_power = get_power_inverse(X, neighbourhood=neighbourhood)
+        inverse_power = get_power_inverse(X, neighborhood=neighborhood)
         G = get_filter_matrix_v7(Y=Y[s], Y_tilde=Y_tilde[s], inverse_power=inverse_power[s])
         X = perform_filter_operation_v5(Y=Y, Y_tilde=Y_tilde, filter_matrix=G)
     return X
 
 
-def wpe_v8(Y, K=10, delay=3, iterations=3, neighbourhood=0, batch_axis=0):
+def wpe_v8(Y, K=10, delay=3, iterations=3, neighborhood=0, batch_axis=0):
     # if Y.ndim == 2:
     #     return wpe_v6(
     #         Y,
     #         K=K,
     #         delay=delay,
     #         iterations=iterations,
-    #         neighbourhood=neighbourhood,
+    #         neighborhood=neighborhood,
     #     )
     assert Y.ndim == 3, Y.shape
 
@@ -377,10 +396,12 @@ def wpe_v8(Y, K=10, delay=3, iterations=3, neighbourhood=0, batch_axis=0):
             K=K,
             delay=delay,
             iterations=iterations,
-            neighbourhood=neighbourhood,
+            neighborhood=neighborhood,
         ))
     return np.stack(out, axis=batch_axis)
 
+
+wpe = wpe_v7
 
 def abs_square(x: np.ndarray):
     """
@@ -407,7 +428,7 @@ def abs_square(x: np.ndarray):
         return x ** 2
 
 
-def get_power_inverse(signal, neighbourhood=0):
+def get_power_inverse(signal, neighborhood=0):
     """
     Assumes single frequency bin with shape (D, T).
 
@@ -423,18 +444,18 @@ def get_power_inverse(signal, neighbourhood=0):
     """
     power = np.mean(abs_square(signal), axis=-2)
 
-    if np.isposinf(neighbourhood):
+    if np.isposinf(neighborhood):
         power = np.broadcast_to(np.mean(power, axis=-1, keepdims=True), power.shape)
-    elif neighbourhood > 0:
-        assert int(neighbourhood) == neighbourhood, neighbourhood
-        neighbourhood = int(neighbourhood)
+    elif neighborhood > 0:
+        assert int(neighborhood) == neighborhood, neighborhood
+        neighborhood = int(neighborhood)
         import bottleneck as bn
-        # Handle the boarder case correct (i.e. sum() / count)
-        power = bn.move_mean(power, neighbourhood*2+1, min_count=1)
-    elif neighbourhood == 0:
+        # Handle the corner case correctly (i.e. sum() / count)
+        power = bn.move_mean(power, neighborhood*2+1, min_count=1)
+    elif neighborhood == 0:
         pass
     else:
-        raise ValueError(neighbourhood)
+        raise ValueError(neighborhood)
     eps = 1e-10 * np.max(power)
     inverse_power = 1 / np.maximum(power, eps)
     return inverse_power
