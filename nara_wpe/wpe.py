@@ -4,8 +4,38 @@ import operator
 import numpy as np
 
 
-def segment_axis(x, length, shift, axis=-1):
+def segment_axis(
+        x,
+        length,
+        shift,
+        axis=-1,
+        end:  "in ['pad', 'cut', None]"='cut',
+        pad_mode='constant',
+        pad_value=0,
+):
     axis = axis % x.ndim
+
+    # Pad
+    if end == 'pad':
+        if x.shape[axis] < length:
+            npad = np.zeros([x.ndim, 2], dtype=np.int)
+            npad[axis, 1] = length - x.shape[axis]
+            x = np.pad(x, pad_width=npad, mode=pad_mode,
+                       constant_values=pad_value)
+        elif shift != 1 and (x.shape[axis] + shift - length) % shift != 0:
+            npad = np.zeros([x.ndim, 2], dtype=np.int)
+            npad[axis, 1] = shift - ((x.shape[axis] + shift - length) % shift)
+            x = np.pad(x, pad_width=npad, mode=pad_mode,
+                       constant_values=pad_value)
+    elif end is None:
+        assert (x.shape[axis] + shift - length) % shift == 0, \
+            '{} = x.shape[axis]({}) + shift({}) - length({})) % shift({})' \
+            ''.format((x.shape[axis] + shift - length) % shift,
+                      x.shape[axis], shift, length, shift)
+    elif end == 'cut':
+        pass
+    else:
+        raise ValueError(end)
 
     shape = list(x.shape)
     del shape[axis]
