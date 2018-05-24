@@ -261,7 +261,7 @@ def wpe(Y, K=10, delay=3, iterations=3, mode='inv'):
         K (int, optional): Defaults to 10. Number of filter taps.
         delay (int, optional): Defaults to 3.
         iterations (int, optional): Defaults to 3.
-        mode (str, optional): Specifies how R^-1@r is calculate:
+        mode (str, optional): Specifies how R^-1@r is calculated:
             "inv" calculates the inverse of R directly and then uses matmul
             "solve" solves Rx=r for x
 
@@ -279,7 +279,7 @@ def wpe(Y, K=10, delay=3, iterations=3, mode='inv'):
         iteration_over_frequencies, Y, dtype=(Y.dtype, Y.dtype.real_dtype)
     )
 
-    return enhanced, inverse_power
+    return enhanced
 
 
 def batched_wpe(Y, num_frames, K=10, delay=3, iterations=3, mode='inv'):
@@ -575,6 +575,7 @@ def online_dereverb_step(
         tf.einsum('li,lm->lim', kalman_gain, tf.conj(pred))
     )
     return pred, inv_cov_k, filter_taps_k 
+
 
 def recursive_wpe(
         Y, power_estimate, alpha, K=10, delay=2,
