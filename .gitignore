@@ -1,2 +1,6 @@
 .vscode
 *.egg-info
+*.pyc
+.idea/
+docs/_build
+docs/_templates

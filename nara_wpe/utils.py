@@ -14,51 +14,48 @@ from nara_wpe.wpe import segment_axis as segment_axis_v2
 
 
 def segment_axis(a, length, overlap=0, axis=None, end='cut', endvalue=0):
-    """ Generate a new array that chops the given array along the given axis into overlapping frames.
+    """Generate a new array that chops the given array along the given axis
+     into overlapping frames.
 
-    :param a: The array to segment
-    :param length: The length of each frame
-    :param overlap: The number of array elements by which the frames should overlap
-    :param axis: The axis to operate on; if None, act on the flattened array
-    :param end: What to do with the last frame, if the array is not evenly
-        divisible into pieces. Options are:
-        * 'cut'   Simply discard the extra values
-        * 'wrap'  Copy values from the beginning of the array
-        * 'pad'   Pad with a constant value
-    :param endvalue: The value to use for end='pad'
-    :return:
+    Args:
+        a: The array to segment
+        length: The length of each frame
+        overlap: The number of array elements by which the frames should overlap
+        axis: The axis to operate on; if None, act on the flattened array
+        end: What to do with the last frame, if the array is not evenly
+                divisible into pieces. Options are:
+                * 'cut'   Simply discard the extra values
+                * 'wrap'  Copy values from the beginning of the array
+                * 'pad'   Pad with a constant value
+        endvalue: The value to use for end='pad'
 
-    The array is not copied unless necessary (either because it is
-    unevenly strided and being flattened or because end is set to
-    'pad' or 'wrap').
+    Examples:
+        >>> segment_axis(np.arange(10), 4, 2)
+        array([[0, 1, 2, 3],
+               [2, 3, 4, 5],
+               [4, 5, 6, 7],
+               [6, 7, 8, 9]])
+        >>> segment_axis(np.arange(5).reshape(5), 4, 3, axis=0)
+        array([[0, 1, 2, 3],
+               [1, 2, 3, 4]])
+        >>> segment_axis(np.arange(10).reshape(2, 5), 4, 3, axis=-1)
+        array([[[0, 1, 2, 3],
+                [1, 2, 3, 4]],
+        <BLANKLINE>
+               [[5, 6, 7, 8],
+                [6, 7, 8, 9]]])
+        >>> segment_axis(np.arange(10).reshape(5, 2).T, 4, 3, axis=1)
+        array([[[0, 2, 4, 6],
+                [2, 4, 6, 8]],
+        <BLANKLINE>
+               [[1, 3, 5, 7],
+                [3, 5, 7, 9]]])
+        >>> a = np.arange(5).reshape(5)
+        >>> b = segment_axis(a, 4, 2, axis=0)
+        >>> a += 1  # a and b point to the same memory
+        >>> b
+        array([[1, 2, 3, 4]])
 
-    Example
-    -------
-    >>> segment_axis(np.arange(10), 4, 2)
-    array([[0, 1, 2, 3],
-           [2, 3, 4, 5],
-           [4, 5, 6, 7],
-           [6, 7, 8, 9]])
-    >>> segment_axis(np.arange(5).reshape(5), 4, 3, axis=0)
-    array([[0, 1, 2, 3],
-           [1, 2, 3, 4]])
-    >>> segment_axis(np.arange(10).reshape(2, 5), 4, 3, axis=-1)
-    array([[[0, 1, 2, 3],
-            [1, 2, 3, 4]],
-    <BLANKLINE>
-           [[5, 6, 7, 8],
-            [6, 7, 8, 9]]])
-    >>> segment_axis(np.arange(10).reshape(5, 2).T, 4, 3, axis=1)
-    array([[[0, 2, 4, 6],
-            [2, 4, 6, 8]],
-    <BLANKLINE>
-           [[1, 3, 5, 7],
-            [3, 5, 7, 9]]])
-    >>> a = np.arange(5).reshape(5)
-    >>> b = segment_axis(a, 4, 2, axis=0)
-    >>> a += 1  # a and b point to the same memory
-    >>> b
-    array([[1, 2, 3, 4]])
     """
 
     if axis is None:
@@ -146,68 +143,63 @@ def roll_zeropad(a, shift, axis=None):
 
     Elements off the end of the array are treated as zeros.
 
-    Parameters
-    ----------
-    a : array_like
-        Input array.
-    shift : int
-        The number of places by which elements are shifted.
-    axis : int, optional
-        The axis along which elements are shifted.  By default, the array
-        is flattened before shifting, after which the original
-        shape is restored.
+   Args:
+        a: array_like
+            Input array.
+        shift: int
+            The number of places by which elements are shifted.
+        axis (int): optional,
+            The axis along which elements are shifted.  By default, the array
+            is flattened before shifting, after which the original
+            shape is restored.
 
-    Returns
-    -------
-    res : ndarray
-        Output array, with the same shape as `a`.
+    Returns:
+        ndarray: Output array, with the same shape as `a`.
 
-    See Also
-    --------
-    roll     : Elements that roll off one end come back on the other.
-    rollaxis : Roll the specified axis backwards, until it lies in a
-               given position.
+    Note:
+        roll     : Elements that roll off one end come back on the other.
+        rollaxis : Roll the specified axis backwards, until it lies in a
+                   given position.
 
-    Examples
-    --------
-    >>> x = np.arange(10)
-    >>> roll_zeropad(x, 2)
-    array([0, 0, 0, 1, 2, 3, 4, 5, 6, 7])
-    >>> roll_zeropad(x, -2)
-    array([2, 3, 4, 5, 6, 7, 8, 9, 0, 0])
+    Examples:
+        >>> x = np.arange(10)
+        >>> roll_zeropad(x, 2)
+        array([0, 0, 0, 1, 2, 3, 4, 5, 6, 7])
+        >>> roll_zeropad(x, -2)
+        array([2, 3, 4, 5, 6, 7, 8, 9, 0, 0])
 
-    >>> x2 = np.reshape(x, (2,5))
-    >>> x2
-    array([[0, 1, 2, 3, 4],
-           [5, 6, 7, 8, 9]])
-    >>> roll_zeropad(x2, 1)
-    array([[0, 0, 1, 2, 3],
-           [4, 5, 6, 7, 8]])
-    >>> roll_zeropad(x2, -2)
-    array([[2, 3, 4, 5, 6],
-           [7, 8, 9, 0, 0]])
-    >>> roll_zeropad(x2, 1, axis=0)
-    array([[0, 0, 0, 0, 0],
-           [0, 1, 2, 3, 4]])
-    >>> roll_zeropad(x2, -1, axis=0)
-    array([[5, 6, 7, 8, 9],
-           [0, 0, 0, 0, 0]])
-    >>> roll_zeropad(x2, 1, axis=1)
-    array([[0, 0, 1, 2, 3],
-           [0, 5, 6, 7, 8]])
-    >>> roll_zeropad(x2, -2, axis=1)
-    array([[2, 3, 4, 0, 0],
-           [7, 8, 9, 0, 0]])
+        >>> x2 = np.reshape(x, (2,5))
+        >>> x2
+        array([[0, 1, 2, 3, 4],
+               [5, 6, 7, 8, 9]])
+        >>> roll_zeropad(x2, 1)
+        array([[0, 0, 1, 2, 3],
+               [4, 5, 6, 7, 8]])
+        >>> roll_zeropad(x2, -2)
+        array([[2, 3, 4, 5, 6],
+               [7, 8, 9, 0, 0]])
+        >>> roll_zeropad(x2, 1, axis=0)
+        array([[0, 0, 0, 0, 0],
+               [0, 1, 2, 3, 4]])
+        >>> roll_zeropad(x2, -1, axis=0)
+        array([[5, 6, 7, 8, 9],
+               [0, 0, 0, 0, 0]])
+        >>> roll_zeropad(x2, 1, axis=1)
+        array([[0, 0, 1, 2, 3],
+               [0, 5, 6, 7, 8]])
+        >>> roll_zeropad(x2, -2, axis=1)
+        array([[2, 3, 4, 0, 0],
+               [7, 8, 9, 0, 0]])
 
-    >>> roll_zeropad(x2, 50)
-    array([[0, 0, 0, 0, 0],
-           [0, 0, 0, 0, 0]])
-    >>> roll_zeropad(x2, -50)
-    array([[0, 0, 0, 0, 0],
-           [0, 0, 0, 0, 0]])
-    >>> roll_zeropad(x2, 0)
-    array([[0, 1, 2, 3, 4],
-           [5, 6, 7, 8, 9]])
+        >>> roll_zeropad(x2, 50)
+        array([[0, 0, 0, 0, 0],
+               [0, 0, 0, 0, 0]])
+        >>> roll_zeropad(x2, -50)
+        array([[0, 0, 0, 0, 0],
+               [0, 0, 0, 0, 0]])
+        >>> roll_zeropad(x2, 0)
+        array([[0, 1, 2, 3, 4],
+               [5, 6, 7, 8, 9]])
 
     """
     a = np.asanyarray(a)
@@ -237,16 +229,16 @@ def roll_zeropad(a, shift, axis=None):
 
 def stft(
         time_signal,
-        size: int=1024,
-        shift: int=256,
+        size,
+        shift,
         *,
         axis=-1,
         window=signal.blackman,
-        window_length: int=None,
-        fading: bool=True,
-        pad: bool=True,
-        symmetric_window: bool=False,
-) -> np.array:
+        window_length,
+        fading,
+        pad,
+        symmetric_window,
+):
     """
     ToDo: Open points:
      - sym_window need literature
@@ -258,25 +250,28 @@ def stft(
     fade out and should yield an STFT signal which allows perfect
     reconstruction.
 
-    :param time_signal: Multi channel time signal with dimensions
-        AA x ... x AZ x T x BA x ... x BZ.
-    :param size: Scalar FFT-size.
-    :param shift: Scalar FFT-shift, the step between successive frames in
-        samples. Typically shift is a fraction of size.
-    :param axis: Scalar axis of time.
-        Default: None means the biggest dimension.
-    :param window: Window function handle. Default is blackman window.
-    :param fading: Pads the signal with zeros for better reconstruction.
-    :param window_length: Sometimes one desires to use a shorter window than
-        the fft size. In that case, the window is padded with zeros.
-        The default is to use the fft-size as a window size.
-    :param pad: If true zero pad the signal to match the shape, else cut
-    :param symmetric_window: symmetric or periodic window. Assume window is
-        periodic. Since the implementation of the windows in scipy.signal have a
-        curious behaviour for odd window_length. Use window(len+1)[:-1]. Since
-        is equal to the behaviour of MATLAB.
-    :return: Single channel complex STFT signal with dimensions
-        AA x ... x AZ x T' times size/2+1 times BA x ... x BZ.
+    Args:
+        time_signal: Multi channel time signal with dimensions
+            AA x ... x AZ x T x BA x ... x BZ.
+        size: Scalar FFT-size.
+        shift: Scalar FFT-shift, the step between successive frames in
+            samples. Typically shift is a fraction of size.
+        axis: Scalar axis of time.
+            Default: None means the biggest dimension.
+        window: Window function handle. Default is blackman window.
+        fading: Pads the signal with zeros for better reconstruction.
+        window_length: Sometimes one desires to use a shorter window than
+            the fft size. In that case, the window is padded with zeros.
+            The default is to use the fft-size as a window size.
+        pad: If true zero pad the signal to match the shape, else cut
+        symmetric_window: symmetric or periodic window. Assume window is
+            periodic. Since the implementation of the windows in scipy.signal have a
+            curious behaviour for odd window_length. Use window(len+1)[:-1]. Since
+            is equal to the behaviour of MATLAB.
+
+    Returns:
+        Single channel complex STFT signal with dimensions
+            AA x ... x AZ x T' times size/2+1 times BA x ... x BZ.
     """
     time_signal = np.array(time_signal)
 
@@ -329,10 +324,14 @@ def stft(
 def _samples_to_stft_frames(samples, size, shift):
     """
     Calculates STFT frames from samples in time domain.
-    :param samples: Number of samples in time domain.
-    :param size: FFT size.
-    :param shift: Hop in samples.
-    :return: Number of STFT frames.
+
+    Args:
+        samples: Number of samples in time domain.
+        size: FFT size.
+        shift: Hop in samples.
+
+    Returns:
+        Number of STFT frames.
     """
     # I changed this from np.ceil to math.ceil, to yield an integer result.
     return ceil((samples - size + shift) / shift)
@@ -341,10 +340,14 @@ def _samples_to_stft_frames(samples, size, shift):
 def _stft_frames_to_samples(frames, size, shift):
     """
     Calculates samples in time domain from STFT frames
-    :param frames: Number of STFT frames.
-    :param size: FFT size.
-    :param shift: Hop in samples.
-    :return: Number of samples in time domain.
+
+    Args:
+        frames: Number of STFT frames.
+        size: FFT size.
+        shift: Hop in samples.
+
+    Returns:
+        Number of samples in time domain.
     """
     return frames * shift + size - shift
 
@@ -359,9 +362,10 @@ def _biorthogonal_window_brute_force(analysis_window, shift,
         n ... time index
         m ... shift index
 
-    :param analysis_window:
-    :param shift:
-    :return:
+    Args:
+        analysis_window:
+        shift:
+
     """
     size = len(analysis_window)
 
@@ -400,26 +404,29 @@ def istft(
     Calculated the inverse short time Fourier transform to exactly reconstruct
     the time signal.
 
-    ..note::
+    Notes:
         Be careful if you make modifications in the frequency domain (e.g.
         beamforming) because the synthesis window is calculated according to
         the unmodified! analysis window.
 
-    :param stft_signal: Single channel complex STFT signal
-        with dimensions (..., frames, size/2+1).
-    :param size: Scalar FFT-size.
-    :param shift: Scalar FFT-shift. Typically shift is a fraction of size.
-    :param window: Window function handle.
-    :param fading: Removes the additional padding, if done during STFT.
-    :param window_length: Sometimes one desires to use a shorter window than
-        the fft size. In that case, the window is padded with zeros.
-        The default is to use the fft-size as a window size.
-    :param symmetric_window: symmetric or periodic window. Assume window is
-        periodic. Since the implementation of the windows in scipy.signal have a
-        curious behaviour for odd window_length. Use window(len+1)[:-1]. Since
-        is equal to the behaviour of MATLAB.
-    :return: Single channel complex STFT signal
-    :return: Single channel time signal.
+    Args:
+        stft_signal: Single channel complex STFT signal
+            with dimensions (..., frames, size/2+1).
+        size: Scalar FFT-size.
+        shift: Scalar FFT-shift. Typically shift is a fraction of size.
+        window: Window function handle.
+        fading: Removes the additional padding, if done during STFT.
+        window_length: Sometimes one desires to use a shorter window than
+            the fft size. In that case, the window is padded with zeros.
+            The default is to use the fft-size as a window size.
+        symmetric_window: symmetric or periodic window. Assume window is
+            periodic. Since the implementation of the windows in scipy.signal have a
+            curious behaviour for odd window_length. Use window(len+1)[:-1]. Since
+            is equal to the behaviour of MATLAB.
+
+    Returns:
+        Single channel complex STFT signal
+        Single channel time signal.
     """
     # Note: frame_axis and frequency_axis would make this function much more
     #       complicated
@@ -475,22 +482,25 @@ def istft_single_channel(stft_signal, size=1024, shift=256,
     Calculated the inverse short time Fourier transform to exactly reconstruct
     the time signal.
 
-    ..note::
+    Notes:
         Be careful if you make modifications in the frequency domain (e.g.
         beamforming) because the synthesis window is calculated according to the
         unmodified! analysis window.
 
-    :param stft_signal: Single channel complex STFT signal
-        with dimensions frames times size/2+1.
-    :param size: Scalar FFT-size.
-    :param shift: Scalar FFT-shift. Typically shift is a fraction of size.
-    :param window: Window function handle.
-    :param fading: Removes the additional padding, if done during STFT.
-    :param window_length: Sometimes one desires to use a shorter window than
-        the fft size. In that case, the window is padded with zeros.
-        The default is to use the fft-size as a window size.
-    :return: Single channel complex STFT signal
-    :return: Single channel time signal.
+    Args:
+        stft_signal: Single channel complex STFT signal
+            with dimensions frames times size/2+1.
+        size: Scalar FFT-size.
+        shift: Scalar FFT-shift. Typically shift is a fraction of size.
+        window: Window function handle.
+        fading: Removes the additional padding, if done during STFT.
+        window_length: Sometimes one desires to use a shorter window than
+            the fft size. In that case, the window is padded with zeros.
+            The default is to use the fft-size as a window size.
+
+    Returns:
+        Single channel complex STFT signal
+        Single channel time signal.
     """
     assert stft_signal.shape[1] == size // 2 + 1, str(stft_signal.shape)
 
@@ -521,21 +531,28 @@ def stft_to_spectrogram(stft_signal):
     Calculates the power spectrum (spectrogram) of an stft signal.
     The output is guaranteed to be real.
 
-    :param stft_signal: Complex STFT signal with dimensions
-        #time_frames times #frequency_bins.
-    :return: Real spectrogram with same dimensions as input.
+    Args:
+        stft_signal: Complex STFT signal with dimensions
+            #time_frames times #frequency_bins.
+
+    Returns:
+        Real spectrogram with same dimensions as input.
     """
     spectrogram = stft_signal.real**2 + stft_signal.imag**2
     return spectrogram
 
 
 def spectrogram(time_signal, *args, **kwargs):
-    """ Thin wrapper of stft with power spectrum calculation.
+    """
+    Thin wrapper of stft with power spectrum calculation.
 
-    :param time_signal:
-    :param args:
-    :param kwargs:
-    :return:
+    Args:
+        time_signal:
+        *args:
+        **kwargs:
+
+    Returns:
+
     """
     return stft_to_spectrogram(stft(time_signal, *args, **kwargs))
 
@@ -545,8 +562,11 @@ def spectrogram_to_energy_per_frame(spectrogram):
     The energy per frame is sometimes used as an additional feature to the MFCC
     features. Here, it is calculated from the power spectrum.
 
-    :param spectrogram: Real valued power spectrum.
-    :return: Real valued energy per frame.
+    Args:
+        spectrogram: Real valued power spectrum.
+
+    Returns:
+        Real valued energy per frame.
     """
     energy = np.sum(spectrogram, 1)
 
@@ -560,9 +580,12 @@ def get_stft_center_frequencies(size=1024, sample_rate=16000):
     It is often necessary to know, which center frequency is
     represented by each frequency bin index.
 
-    :param size: Scalar FFT-size.
-    :param sample_rate: Scalar sample frequency in Hertz.
-    :return: Array of all relevant center frequencies
+    Args:
+        size: Scalar FFT-size.
+        sample_rate: Scalar sample frequency in Hertz.
+
+    Returns:
+        Array of all relevant center frequencies
     """
     frequency_index = np.arange(0, size/2 + 1)
     return frequency_index * sample_rate / size
