@@ -74,7 +74,7 @@ exclude_patterns = ['_build']
 autodoc_mock_imports = ['pathlib', 'nara_wpe', 'nara_wpe.benchmark_online_wpe',
                         'nara_wpe.gradient_overrides', 'nara_wpe.test_utils',
                         'nara_wpe.tf_wpe', 'nara_wpe.utils', 'nara_wpe.wpe',
-                        'numpy']
+                        'numpy', 'pandas', 'tensorflow', ]
 
 
 # The reST default role (used for this markup: `text`) to use for all
