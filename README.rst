@@ -1,6 +1,11 @@
 ========
 nara_wpe
 ========
+
+.. image:: https://readthedocs.org/projects/nara_wpe/badge/?version=pypi-release
+    :target: http://nara-wpe.readthedocs.io/en/pypi-release/
+    :alt: Documentation Status
+
 Different implementations of "Weighted Prediction Error" for speech dereverberation:
 ====================================================================================
 
