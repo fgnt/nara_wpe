@@ -15,8 +15,13 @@ cd nara_wpe
 pip install --user -e .
 ```
 
+
 Check the example notebook for further details.
 If you download the example notebook, you can listen to the audio examples of input and dereverberated output, too.
+
+You can find some documentation here:
+`nara-wpe.readthedocs.io 
+<https://nara-wpe.readthedocs.io/en/latest/>`_.
 
 Development history:
 ====================
