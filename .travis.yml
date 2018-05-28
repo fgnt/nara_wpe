@@ -4,14 +4,10 @@ python:
 
 cache: pip
 
-notifications:
-  slack: echology:"id"
-
 install:
   - pip install -e .
   - pip install tensorflow
   - pip install coverage
 
 script:
-  - nosetests -v --with-coverage --cover-tests --cover-package=noseselecttests tests/*
-
+  - nosetests -v --with-coverage --cover-tests --cover-package=nara_wpe tests/*
