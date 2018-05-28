@@ -10,4 +10,4 @@ install:
   - pip install coverage
 
 script:
-  - nosetests -v --with-coverage --cover-tests --cover-package=nara_wpe tests/*
+  - pytest tests/
