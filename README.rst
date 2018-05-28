@@ -17,8 +17,15 @@ Clone the repository. Then install it as follows:
 
 .. code-block:: bash
 
+  https://github.com/fgnt/nara_wpe.git
   cd nara_wpe
   pip install --user -e .
+
+Alternatively, install it directly with Pip from Github:
+
+.. code-block:: bash
+
+  pip install git+https://github.com/fgnt/nara_wpe.git
 
 Check the example notebook for further details.
 If you download the example notebook, you can listen to the audio examples of input and dereverberated output, too.
