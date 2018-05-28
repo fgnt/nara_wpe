@@ -16,15 +16,15 @@ Yoshioka, Takuya, and Tomohiro Nakatani. "Generalization of multi-channel linear
 
 This code has been tested with Python 3.6.
 
-Clone the repository. Then install it as follows:
+Clone the repository. Then install it as follows if you want to make changes to the code:
 
 .. code-block:: bash
 
   https://github.com/fgnt/nara_wpe.git
   cd nara_wpe
-  pip install --user -e .
+  pip install --editable .
 
-Alternatively, install it directly with Pip from Github:
+Alternatively, if you just want to run it, install it directly with Pip from Github:
 
 .. code-block:: bash
 
