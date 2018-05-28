@@ -6,6 +6,9 @@ nara_wpe
     :target: http://nara-wpe.readthedocs.io/en/pypi-release/
     :alt: Documentation Status
 
+.. image:: https://travis-ci.com/ldrude/nara_wpe.svg?branch=master
+    :target: https://travis-ci.com/ldrude/nara_wpe
+
 Different implementations of "Weighted Prediction Error" for speech dereverberation:
 ====================================================================================
 
