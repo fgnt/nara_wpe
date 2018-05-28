@@ -1,0 +1,17 @@
+language: python
+python:
+  - 3.6
+
+cache: pip
+
+notifications:
+  slack: echology:"id"
+
+install:
+  - pip install -e .
+  - pip install tensorflow
+  - pip install coverage
+
+script:
+  - nosetests -v --with-coverage --cover-tests --cover-package=noseselecttests tests/*
+
