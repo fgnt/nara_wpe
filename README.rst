@@ -5,9 +5,14 @@ nara_wpe
 .. image:: https://readthedocs.org/projects/nara_wpe/badge/?version=pypi-release
     :target: http://nara-wpe.readthedocs.io/en/pypi-release/
     :alt: Documentation Status
-
+    
 .. image:: https://travis-ci.org/fgnt/nara_wpe.svg?branch=master
     :target: https://travis-ci.org/fgnt/nara_wpe
+    :alt: Travis Status
+    
+.. image:: https://img.shields.io/badge/license-MIT-blue.svg
+    :target: https://raw.githubusercontent.com/fgnt/nara_wpe/master/LICENSE
+    :alt: MIT License
 
 Different implementations of "Weighted Prediction Error" for speech dereverberation:
 ====================================================================================
