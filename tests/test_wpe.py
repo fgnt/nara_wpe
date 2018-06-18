@@ -4,7 +4,7 @@ Run all tests with:
 """
 
 import unittest
-import nt.testing as tc
+import numpy.testing as tc
 import numpy as np
 from nara_wpe import wpe
 from nara_wpe.test_utils import retry
@@ -169,10 +169,3 @@ class TestWPE(unittest.TestCase):
         desired = wpe.wpe_v6(self.Y, self.K, self.delay)
         actual = wpe.wpe_v7(self.Y, self.K, self.delay)
         tc.assert_allclose(actual, desired, atol=1e-10)
-
-    @retry(5)
-    def test_wpe_v6_vs_sc(self):
-        from cbj.wpe._numpy import sc_wpe
-        desired = wpe.wpe_v6(self.Y, self.K, self.delay)
-        actual = sc_wpe(self.Y, self.K, self.delay, iterations=3)
-        tc.assert_allclose(actual, desired)
