@@ -47,4 +47,4 @@ Development history:
 
 Since 2017-09-05 a TensorFlow implementation is added to `nara_wpe`. It is tested with a few test cases against the Numpy implementation.
 
-The first version of the Numpy implementation was written in June 2017 while Lukas Drude and Kateřina Žmolíková resided in Nara, Japan. The aim was to have a publicaly available implementation of Takuya Yoshioka's 2012 paper.
+The first version of the Numpy implementation was written in June 2017 while Lukas Drude and Kateřina Žmolíková resided in Nara, Japan. The aim was to have a publicly available implementation of Takuya Yoshioka's 2012 paper.
