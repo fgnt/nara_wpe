@@ -13,25 +13,74 @@ def segment_axis(
         pad_mode='constant',
         pad_value=0,
 ):
+
+    """Generate a new array that chops the given array along the given axis
+     into overlapping frames.
+
+    Args:
+        x: The array to segment
+        length: The length of each frame
+        shift: The number of array elements by which to step forward
+        axis: The axis to operate on; if None, act on the flattened array
+        end: What to do with the last frame, if the array is not evenly
+                divisible into pieces. Options are:
+                * 'cut'   Simply discard the extra values
+                * None    No end treatment. Only works when fits perfectly.
+                * 'pad'   Pad with a constant value
+        pad_mode:
+        pad_value: The value to use for end='pad'
+
+    Examples:
+        >>> segment_axis(np.arange(10), 4, 2)
+        array([[0, 1, 2, 3],
+               [2, 3, 4, 5],
+               [4, 5, 6, 7],
+               [6, 7, 8, 9]])
+        >>> segment_axis(np.arange(5).reshape(5), 4, 1, axis=0)
+        array([[0, 1, 2, 3],
+               [1, 2, 3, 4]])
+        >>> segment_axis(np.arange(10).reshape(2, 5), 4, 1, axis=-1)
+        array([[[0, 1, 2, 3],
+                [1, 2, 3, 4]],
+        <BLANKLINE>
+               [[5, 6, 7, 8],
+                [6, 7, 8, 9]]])
+        >>> segment_axis(np.arange(10).reshape(5, 2).T, 4, 1, axis=1)
+        array([[[0, 2, 4, 6],
+                [2, 4, 6, 8]],
+        <BLANKLINE>
+               [[1, 3, 5, 7],
+                [3, 5, 7, 9]]])
+        >>> a = np.arange(5).reshape(5)
+        >>> b = segment_axis(a, 4, 2, axis=0)
+        >>> a += 1  # a and b point to the same memory
+        >>> b
+        array([[1, 2, 3, 4]])
+
+    """
     axis = axis % x.ndim
+    elements = x.shape[axis]
+
+    if shift <= 0:
+        raise ValueError('Can not shift forward by less than 1 element.')
 
     # Pad
     if end == 'pad':
-        if x.shape[axis] < length:
-            npad = np.zeros([x.ndim, 2], dtype=np.int)
-            npad[axis, 1] = length - x.shape[axis]
-            x = np.pad(x, pad_width=npad, mode=pad_mode,
-                       constant_values=pad_value)
-        elif shift != 1 and (x.shape[axis] + shift - length) % shift != 0:
-            npad = np.zeros([x.ndim, 2], dtype=np.int)
-            npad[axis, 1] = shift - ((x.shape[axis] + shift - length) % shift)
-            x = np.pad(x, pad_width=npad, mode=pad_mode,
-                       constant_values=pad_value)
+        npad = np.zeros([x.ndim, 2], dtype=np.int)
+        pad_fn = functools.partial(
+            np.pad, pad_width=npad, mode=pad_mode, constant_values=pad_value
+        )
+        if elements < length:
+            npad[axis, 1] = length - elements
+            x = pad_fn(x)
+        elif not shift == 1 and not (elements + shift - length) % shift == 0:
+            npad[axis, 1] = shift - ((elements + shift - length) % shift)
+            x = pad_fn(x)
     elif end is None:
-        assert (x.shape[axis] + shift - length) % shift == 0, \
-            '{} = x.shape[axis]({}) + shift({}) - length({})) % shift({})' \
-            ''.format((x.shape[axis] + shift - length) % shift,
-                      x.shape[axis], shift, length, shift)
+        assert (elements + shift - length) % shift == 0, \
+            '{} = elements({}) + shift({}) - length({})) % shift({})' \
+            ''.format((elements + shift - length) % shift,
+                      elements, shift, length, shift)
     elif end == 'cut':
         pass
     else:
@@ -39,7 +88,7 @@ def segment_axis(
 
     shape = list(x.shape)
     del shape[axis]
-    shape.insert(axis, (x.shape[axis] + shift - length) // shift)
+    shape.insert(axis, (elements + shift - length) // shift)
     shape.insert(axis + 1, length)
 
     strides = list(x.strides)
