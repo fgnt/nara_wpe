@@ -4,7 +4,7 @@ Run all tests with:
 """
 
 import unittest
-import nt.testing as tc
+import numpy.testing as tc
 import numpy as np
 from nara_wpe import wpe
 from nara_wpe.test_utils import retry

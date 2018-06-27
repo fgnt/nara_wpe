@@ -1,6 +1,19 @@
 ========
 nara_wpe
 ========
+
+.. image:: https://readthedocs.org/projects/nara_wpe/badge/?version=pypi-release
+    :target: http://nara-wpe.readthedocs.io/en/pypi-release/
+    :alt: Documentation Status
+    
+.. image:: https://travis-ci.org/fgnt/nara_wpe.svg?branch=master
+    :target: https://travis-ci.org/fgnt/nara_wpe
+    :alt: Travis Status
+    
+.. image:: https://img.shields.io/badge/license-MIT-blue.svg
+    :target: https://raw.githubusercontent.com/fgnt/nara_wpe/master/LICENSE
+    :alt: MIT License
+
 Different implementations of "Weighted Prediction Error" for speech dereverberation:
 ====================================================================================
 
@@ -8,15 +21,15 @@ Yoshioka, Takuya, and Tomohiro Nakatani. "Generalization of multi-channel linear
 
 This code has been tested with Python 3.6.
 
-Clone the repository. Then install it as follows:
+Clone the repository. Then install it as follows if you want to make changes to the code:
 
 .. code-block:: bash
 
   https://github.com/fgnt/nara_wpe.git
   cd nara_wpe
-  pip install --user -e .
+  pip install --editable .
 
-Alternatively, install it directly with Pip from Github:
+Alternatively, if you just want to run it, install it directly with Pip from Github:
 
 .. code-block:: bash
 
@@ -34,4 +47,4 @@ Development history:
 
 Since 2017-09-05 a TensorFlow implementation is added to `nara_wpe`. It is tested with a few test cases against the Numpy implementation.
 
-The first version of the Numpy implementation was written in June 2017 while Lukas Drude and Kateřina Žmolíková resided in Nara, Japan. The aim was to have a publicaly available implementation of Takuya Yoshioka's 2012 paper.
+The first version of the Numpy implementation was written in June 2017 while Lukas Drude and Kateřina Žmolíková resided in Nara, Japan. The aim was to have a publicly available implementation of Takuya Yoshioka's 2012 paper.

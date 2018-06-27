@@ -1,0 +1,13 @@
+language: python
+python:
+  - 3.6
+
+cache: pip
+
+install:
+  - pip install -e .
+  - pip install tensorflow
+  - pip install coverage
+
+script:
+  - pytest tests/
