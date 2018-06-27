@@ -300,7 +300,7 @@ def batched_wpe(Y, num_frames, K=10, delay=3, iterations=3, mode='inv'):
     """
 
     def _inner_func(signals):
-        out, _ = wpe(signals[0], K, delay, iterations, mode)
+        out = wpe(signals[0], K, delay, iterations, mode)
         return out
 
     return _batch_wrapper(_inner_func, [Y], num_frames)
