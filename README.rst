@@ -36,7 +36,7 @@ Alternatively, if you just want to run it, install it directly with Pip from Git
   pip install git+https://github.com/fgnt/nara_wpe.git
 
 Check the example notebook for further details.
-If you download the example notebook, you can listen to the input audio examples and to the output dereverberated signals too.
+If you download the example notebook, you can listen to the input audio examples and to the dereverberated output too.
 
 You can find some documentation here:
 `nara-wpe.readthedocs.io 
