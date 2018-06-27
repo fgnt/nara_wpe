@@ -12,17 +12,18 @@ delay = 1
 
 def config_iterator():
     return product(
-        range(1, 11),  # K
+        range(1, 11),
+        range(1, 21),  # K
         [2, 4, 8],  # num_mics # range(2, 11)
-        [512, 1024],  # frame_size
-        [tf.complex64, tf.complex128],  # dtype
+        [512],  # frame_size # 1024
+        [tf.complex64],  # dtype # , tf.complex128
         ['/cpu:0']  # device # '/gpu:0'
     )
 
 
 if __name__ == '__main__':
     print('Generating configs...')
-    for K, num_mics, frame_size, dtype, device in config_iterator():
+    for repetition, K, num_mics, frame_size, dtype, device in config_iterator():
         inv_cov_tm1 = tf.eye(
             num_mics * K, batch_shape=[frame_size // 2 + 1], dtype=tf.complex64)
         filter_taps_tm1 = tf.zeros(
@@ -32,6 +33,7 @@ if __name__ == '__main__':
         power_estimate = tf.ones((frame_size // 2 + 1,), dtype=tf.complex64)
         with tf.device(device):
             configs.append(dict(
+                repetition=repetition,
                 K=K,
                 num_mics=num_mics,
                 frame_size=frame_size,
@@ -52,6 +54,7 @@ if __name__ == '__main__':
                 cfg['op'],
                 min_iters=100
             )
+            result['repetition'] = cfg['repetition']
             result['K'] = cfg['K']
             result['num_mics'] = cfg['num_mics']
             result['frame_size'] = cfg['frame_size']
