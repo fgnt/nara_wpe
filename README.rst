@@ -19,7 +19,7 @@ Different implementations of "Weighted Prediction Error" for speech dereverberat
 
 Yoshioka, Takuya, and Tomohiro Nakatani. "Generalization of multi-channel linear prediction methods for blind MIMO impulse response shortening." IEEE Transactions on Audio, Speech, and Language Processing 20.10 (2012): 2707-2720.
 
-This code has been tested with Python 3.6.
+This code has been tested with Python 3.5 and 3.6.
 
 Clone the repository. Then install it as follows if you want to make changes to the code:
 
