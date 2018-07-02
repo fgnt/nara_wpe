@@ -154,8 +154,8 @@ class TestWPE(tf.test.TestCase):
     def test_batched_wpe(self):
         with self.test_session() as sess:
             Y_batch, _ = self._get_batch_data()
-            enhanced_ref_1, _ = tf_wpe.wpe(Y_batch[0])
-            enhanced_ref_2, _ = tf_wpe.wpe(Y_batch[0, ...,:self.T-20])
+            enhanced_ref_1 = tf_wpe.wpe(Y_batch[0])
+            enhanced_ref_2 = tf_wpe.wpe(Y_batch[0, ..., :self.T-20])
             step_enhanced = tf_wpe.batched_wpe(
                 Y_batch,
                 num_frames=tf.convert_to_tensor([self.T, self.T-20])
@@ -173,7 +173,7 @@ class TestWPE(tf.test.TestCase):
                 Y_batch[0], inv_power_batch[0]
             )
             enhanced_ref_2 = tf_wpe.block_wpe_step(
-                Y_batch[0, ...,:self.T-20], inv_power_batch[0, ...,:self.T-20]
+                Y_batch[0, ..., :self.T-20], inv_power_batch[0, ..., :self.T-20]
             )
             step_enhanced = tf_wpe.batched_block_wpe_step(
                 Y_batch, inv_power_batch,
