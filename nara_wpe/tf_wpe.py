@@ -537,7 +537,7 @@ def online_dereverb_step(
         input_buffer (tf.Tensor): Buffer of shape (K+delay+1, F, D)
         power_estimate (tf.Tensor): Estimate for the current PSD
         inv_cov_tm1 (tf.Tensor): Current estimate of R^-1
-        filter_taps_tm1 (tf.Tensor): Current estimate of filter taps
+        filter_taps_tm1 (tf.Tensor): Current estimate of filter taps (F, K*D, K)
         alpha (float): Smoothing factor
         K (int): Number of filter taps
         delay (int): Delay in frames
@@ -556,23 +556,23 @@ def online_dereverb_step(
     window_conj = tf.conj(window)
     pred = (
         input_buffer[-1] -
-        tf.einsum('lim,li->lm', tf.conj(filter_taps_tm1), window)
+        tf.einsum('fid,fi->fd', tf.conj(filter_taps_tm1), window)
     )
 
-    nominator = tf.einsum('lij,lj->li', inv_cov_tm1, window)
+    nominator = tf.einsum('fij,fj->fi', inv_cov_tm1, window)
     denominator = tf.cast(alpha * power_estimate, window.dtype)
-    denominator += tf.einsum('li,li->l', window_conj, nominator)
+    denominator += tf.einsum('fi,fi->f', window_conj, nominator)
     kalman_gain = nominator / denominator[:, None]
 
-    _gain_window = tf.einsum('li,lj->lij', kalman_gain, window_conj)
+    _gain_window = tf.einsum('fi,fj->fij', kalman_gain, window_conj)
     inv_cov_k = 1. / alpha * (
         inv_cov_tm1 - tf.einsum(
-            'lij,ljm->lim', _gain_window, inv_cov_tm1)
+            'fij,fjm->fim', _gain_window, inv_cov_tm1)
     )
 
     filter_taps_k = (
         filter_taps_tm1 +
-        tf.einsum('li,lm->lim', kalman_gain, tf.conj(pred))
+        tf.einsum('fi,fm->fim', kalman_gain, tf.conj(pred))
     )
     return pred, inv_cov_k, filter_taps_k 
 
