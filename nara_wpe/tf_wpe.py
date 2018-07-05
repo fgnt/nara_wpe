@@ -65,7 +65,7 @@ def get_power_online(signal):
         Returns:
             tf.Tensor: Inverse power with shape (F,)
 
-        """
+    """
     power_estimate = tf.real(signal) ** 2 + tf.imag(signal) ** 2
     power_estimate += tf.pad(
         power_estimate,
@@ -551,7 +551,8 @@ def online_wpe_step(
         input_buffer, power_estimate, inv_cov, filter_taps,
         alpha, K, delay
     ):
-    """One step of online dereverberation
+    """
+    One step of online dereverberation
     
     Args:
         input_buffer (tf.Tensor): Buffer of shape (K+delay+1, F, D)
@@ -567,11 +568,11 @@ def online_wpe_step(
         tf.Tensor: Updated estimate of R^-1
         tf.Tensor: Updated estimate of the filter taps
     """
-    num_bins = input_buffer.shape[-2]
-    num_ch = tf.shape(input_buffer)[-1]
+    F = input_buffer.shape[-2]
+    D = tf.shape(input_buffer)[-1]
     window = input_buffer[:-delay - 1][::-1]
     window = tf.reshape(
-        tf.transpose(window, (1, 2, 0)), (num_bins, K * num_ch)
+        tf.transpose(window, (1, 2, 0)), (F, K * D)
     )
     window_conj = tf.conj(window)
     pred = (
@@ -584,11 +585,8 @@ def online_wpe_step(
     denominator += tf.einsum('fi,fi->f', window_conj, nominator)
     kalman_gain = nominator / denominator[:, None]
 
-    _gain_window = tf.einsum('fi,fj->fij', kalman_gain, window_conj)
-    inv_cov_k = 1. / alpha * (
-        inv_cov - tf.einsum(
-            'fij,fjm->fim', _gain_window, inv_cov)
-    )
+    inv_cov_k = inv_cov - tf.einsum('fj,fjm,fi->fim', window_conj, inv_cov, kalman_gain)
+    inv_cov_k /= alpha
 
     filter_taps_k = (
         filter_taps +

@@ -407,6 +407,58 @@ def wpe_v8(Y, K=10, delay=3, iterations=3, delta=0, mode='full'):
 
 wpe = wpe_v7
 
+
+def online_wpe_step(
+        input_buffer, power_estimate, inv_cov, filter_taps,
+        alpha, K, delay
+    ):
+    """
+    One step of online dereverberation.
+    
+    Args:
+        input_buffer: Buffer of shape (K+delay+1, F, D)
+        power_estimate: Estimate for the current PSD
+        inv_cov: Current estimate of R^-1
+        filter_taps: Current estimate of filter taps (F, K*D, K)
+        alpha (float): Smoothing factor
+        K (int): Number of filter taps
+        delay (int): Delay in frames
+
+    Returns:
+        Dereverberated frame of shape (F, D)
+        Updated estimate of R^-1
+        Updated estimate of the filter taps
+    """
+    
+    F, D = input_buffer.shape[-2:]
+    window = input_buffer[:-delay - 1][::-1]
+    window = window.transpose(1, 2, 0).reshape((F, K * D))
+    pred = (
+        input_buffer[-1] -
+        np.einsum('fid,fi->fd', np.conjugate(filter_taps), window)
+    )
+    nominator = np.einsum('fij,fj->fi', inv_cov, window)
+    denominator = (alpha * power_estimate).astype(window.dtype) 
+    denominator += np.einsum('fi,fi->f', np.conjugate(window), nominator)
+    kalman_gain = nominator / denominator[:, None]
+    
+    inv_cov_k = inv_cov - np.einsum(
+        'fj,fjm,fi->fim',
+        np.conjugate(window),
+        inv_cov,
+        kalman_gain,
+        optimize='optimal'
+    )
+    inv_cov_k /= alpha
+    
+    filter_taps_k = (
+        filter_taps +
+        np.einsum('fi,fm->fim', kalman_gain, np.conjugate(pred))
+    )
+    
+    return pred, inv_cov_k, filter_taps_k
+
+
 def abs_square(x: np.ndarray):
     """
 
@@ -430,6 +482,28 @@ def abs_square(x: np.ndarray):
         return x.real ** 2 + x.imag ** 2
     else:
         return x ** 2
+
+    
+def get_power_online(signal):
+    """
+    Calculates power over last to frames of `signal`
+
+    Args:
+        signal (tf.Tensor): Single frequency signal with shape (T, F, D).
+
+    Returns:
+        tf.Tensor: Inverse power with shape (F,)
+
+    """
+    power_estimate = np.real(signal) ** 2 + np.imag(signal) ** 2
+    power_estimate += np.pad(
+        power_estimate,
+        ((1, 0), (0, 0), (0, 0)),
+        mode='constant'
+    )[:-1, :]
+    power_estimate /= 2
+    power_estimate = np.mean(power_estimate, axis=(0, -1))
+    return power_estimate
 
 
 def get_power_inverse(signal, delta=0):
