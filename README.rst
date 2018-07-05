@@ -14,6 +14,13 @@ nara_wpe
     :target: https://raw.githubusercontent.com/fgnt/nara_wpe/master/LICENSE
     :alt: MIT License
 
+Weighted Prediction Error
+=========================
+
+Background noise and signal reverberation due to reflections in an enclosure are the two main impairments in acoustic
+signal processing and far-field speech recognition. This work addresses signal dereverberation techniques based on WPE for speech recognition and other far-field applications.
+WPE is a compelling algorithm to blindly dereverberate acoustic signals based on long-term linear prediction.
+
 Different implementations of "Weighted Prediction Error" for speech dereverberation
 ====================================================================================
 

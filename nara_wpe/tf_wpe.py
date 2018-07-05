@@ -56,6 +56,26 @@ def _batch_wrapper(inner_function, signals, num_frames, time_axis=-1):
     return out
 
 
+def get_power_online(signal):
+    """Calculates power over last to frames for `signal`
+
+        Args:
+            signal (tf.Tensor): Single frequency signal with shape (T, F, D).
+
+        Returns:
+            tf.Tensor: Inverse power with shape (F,)
+
+        """
+    power_estimate = tf.real(signal) ** 2 + tf.imag(signal) ** 2
+    power_estimate += tf.pad(
+        power_estimate,
+        ((1, 0), (0, 0), (0, 0))
+    )[:-1, :]
+    power_estimate /= 2
+    power_estimate = tf.reduce_mean(power_estimate, axis=(0, -1))
+    return power_estimate
+
+
 def get_power_inverse(signal, channel_axis=0):
     """Calculates inverse power for `signal`
 
@@ -307,7 +327,7 @@ def batched_wpe(Y, num_frames, K=10, delay=3, iterations=3, mode='inv'):
 
 
 def wpe_step(Y, inverse_power, K=10, delay=3, mode='inv', Y_stats=None):
-    """Single WPE step. More suited for backpropagation.
+    """Single step of 'wpe'. More suited for backpropagation.
 
     Args:
         Y (tf.Tensor): Complex valued STFT signal with shape (F, D, T)
@@ -527,8 +547,8 @@ def batched_block_wpe_step(
     return _batch_wrapper(_inner_func, [Y, inverse_power], num_frames)
 
 
-def online_dereverb_step(
-        input_buffer, power_estimate, inv_cov_tm1, filter_taps_tm1,
+def online_wpe_step(
+        input_buffer, power_estimate, inv_cov, filter_taps,
         alpha, K, delay
     ):
     """One step of online dereverberation
@@ -536,8 +556,8 @@ def online_dereverb_step(
     Args:
         input_buffer (tf.Tensor): Buffer of shape (K+delay+1, F, D)
         power_estimate (tf.Tensor): Estimate for the current PSD
-        inv_cov_tm1 (tf.Tensor): Current estimate of R^-1
-        filter_taps_tm1 (tf.Tensor): Current estimate of filter taps (F, K*D, K)
+        inv_cov (tf.Tensor): Current estimate of R^-1
+        filter_taps (tf.Tensor): Current estimate of filter taps (F, K*D, K)
         alpha (float): Smoothing factor
         K (int): Number of filter taps
         delay (int): Delay in frames
@@ -556,22 +576,22 @@ def online_dereverb_step(
     window_conj = tf.conj(window)
     pred = (
         input_buffer[-1] -
-        tf.einsum('fid,fi->fd', tf.conj(filter_taps_tm1), window)
+        tf.einsum('fid,fi->fd', tf.conj(filter_taps), window)
     )
 
-    nominator = tf.einsum('fij,fj->fi', inv_cov_tm1, window)
+    nominator = tf.einsum('fij,fj->fi', inv_cov, window)
     denominator = tf.cast(alpha * power_estimate, window.dtype)
     denominator += tf.einsum('fi,fi->f', window_conj, nominator)
     kalman_gain = nominator / denominator[:, None]
 
     _gain_window = tf.einsum('fi,fj->fij', kalman_gain, window_conj)
     inv_cov_k = 1. / alpha * (
-        inv_cov_tm1 - tf.einsum(
-            'fij,fjm->fim', _gain_window, inv_cov_tm1)
+        inv_cov - tf.einsum(
+            'fij,fjm->fim', _gain_window, inv_cov)
     )
 
     filter_taps_k = (
-        filter_taps_tm1 +
+        filter_taps +
         tf.einsum('fi,fm->fim', kalman_gain, tf.conj(pred))
     )
     return pred, inv_cov_k, filter_taps_k 

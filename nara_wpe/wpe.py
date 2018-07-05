@@ -9,7 +9,7 @@ def segment_axis(
         length,
         shift,
         axis=-1,
-        end:  "in ['pad', 'cut', None]"='cut',
+        end:  "in ['full', 'valid', None]"='valid',
         pad_mode='constant',
         pad_value=0,
 ):
@@ -24,11 +24,11 @@ def segment_axis(
         axis: The axis to operate on; if None, act on the flattened array
         end: What to do with the last frame, if the array is not evenly
                 divisible into pieces. Options are:
-                * 'cut'   Simply discard the extra values
+                * 'valid'   Simply discard the extra values
                 * None    No end treatment. Only works when fits perfectly.
-                * 'pad'   Pad with a constant value
+                * 'full'   Pad with a constant value
         pad_mode:
-        pad_value: The value to use for end='pad'
+        pad_value: The value to use for end='full'
 
     Examples:
         >>> segment_axis(np.arange(10), 4, 2)
@@ -64,8 +64,8 @@ def segment_axis(
     if shift <= 0:
         raise ValueError('Can not shift forward by less than 1 element.')
 
-    # Pad
-    if end == 'pad':
+    # full
+    if end == 'full':
         npad = np.zeros([x.ndim, 2], dtype=np.int)
         pad_fn = functools.partial(
             np.pad, pad_width=npad, mode=pad_mode, constant_values=pad_value
@@ -81,7 +81,7 @@ def segment_axis(
             '{} = elements({}) + shift({}) - length({})) % shift({})' \
             ''.format((elements + shift - length) % shift,
                       elements, shift, length, shift)
-    elif end == 'cut':
+    elif end == 'valid':
         pass
     else:
         raise ValueError(end)
@@ -270,15 +270,7 @@ def hermite(x):
     return x.swapaxes(-2, -1).conj()
 
 
-def print_matrix(matrix):
-    max_length = max([len(str(x)) for x in matrix.ravel()])
-    for row in matrix:
-        for column in row:
-            print(('{:' + str(max_length) + '.0f}').format(column), end='')
-        print()
-
-
-def wpe_v0(Y, K=10, delay=3, iterations=3, psd_context=0, statistics_mode='full'):
+def wpe_v0(Y, K=10, delay=3, iterations=3, delta=0, mode='full'):
     """
 
     Args:
@@ -286,23 +278,31 @@ def wpe_v0(Y, K=10, delay=3, iterations=3, psd_context=0, statistics_mode='full'
         K: Filter order
         delay: Delay as a guard interval, such that X does not become zero.
         iterations:
-        psd_context: Defines the number of elements in the time window
+        delta: Defines the number of elements in the time window
             to improve the power estimation. Total number of elements will
-            be (psd_context + 1 + psd_context).
-        statistics_mode: Either 'full' or 'valid'.
+            be (delta + 1 + delta).
+        mode: Either 'full' or 'valid'.
             'full': Pad the observation with zeros on the left for the
             estimation of the correlation matrix and vector.
             'valid': Only calculate correlation matrix and vector on valid
             slices of the observation.
 
+
     Returns:
         Estimated signal with same shape as Y.
 
     """
+    if mode == 'full':
+        s = Ellipsis
+    elif mode == 'valid':
+        s = [Ellipsis, slice(delay + K - 1, None)]
+    else:
+        raise ValueError(mode)
+
     X = np.copy(Y)
     if Y.ndim == 2:
         for iteration in range(iterations):
-            inverse_power = get_power_inverse(X, neighborhood=psd_context)
+            inverse_power = get_power_inverse(X, delta=delta)
             filter_matrix_conj = get_filter_matrix_conj_v5(
                 Y, inverse_power, K, delay
             )
@@ -312,125 +312,76 @@ def wpe_v0(Y, K=10, delay=3, iterations=3, psd_context=0, statistics_mode='full'
         for f in range(F):
             X[f, :, :] = wpe(
                 Y[f, :, :],
-                K=K, delay=delay, iterations=iterations,
-                psd_context=psd_context, statistics_mode=statistics_mode
+                K=K,
+                delay=delay,
+                iterations=iterations,
+                delta=delta,
+                mode=mode
             )
     else:
         raise NotImplementedError('Input shape is to be (F, D, T) or (D, T).')
     return X
 
 
-def wpe_v1(Y, K=10, delay=3, iterations=3):
-    D, T = Y.shape
-    X = np.copy(Y)
-    for iteration in range(iterations):
-        inverse_power = get_power_inverse(X)
-        correlation_matrix, correlation_vector = get_correlations(
-            Y, inverse_power, K, delay
-        )
-        filter_matrix_conj = get_filter_matrix_conj(
-            correlation_matrix, correlation_vector, K, D
-        )
-        X = perform_filter_operation(Y, filter_matrix_conj, K, delay)
-    return X
-
-
-def wpe_v2(Y, K=10, delay=3, iterations=3):
-    D, T = Y.shape
-    X = np.copy(Y)
-    for iteration in range(iterations):
-        inverse_power = get_power_inverse(X)
-        correlation_matrix, correlation_vector = get_correlations_v2(
-            Y, inverse_power, K, delay
-        )
-        filter_matrix_conj = get_filter_matrix_conj(
-            correlation_matrix, correlation_vector, K, D
-        )
-        X = perform_filter_operation(Y, filter_matrix_conj, K, delay)
-    return X
-
-
-def wpe_v4(Y, K=10, delay=3, iterations=3):
-    D, T = Y.shape
-    X = np.copy(Y)
-    for iteration in range(iterations):
-        inverse_power = get_power_inverse(X)
-        correlation_matrix, correlation_vector = get_correlations_v2(
-            Y, inverse_power, K, delay
-        )
-        filter_matrix_conj = get_filter_matrix_conj(
-            correlation_matrix, correlation_vector, K, D
-        )
-        X = perform_filter_operation_v4(Y, filter_matrix_conj, K, delay)
-    return X
-
-
-def wpe_v5(Y, K=10, delay=3, iterations=3):
-    X = np.copy(Y)
-    for iteration in range(iterations):
-        inverse_power = get_power_inverse(X)
-        filter_matrix_conj = get_filter_matrix_conj_v5(
-            Y, inverse_power, K, delay
-        )
-        X = perform_filter_operation_v4(Y, filter_matrix_conj, K, delay)
-    return X
-
-
-def wpe_v6(Y, K=10, delay=3, iterations=3, neighborhood=0):
+def wpe_v6(Y, K=10, delay=3, iterations=3, delta=0, mode='full'):
     """
-    Short of wpe_v7.
-
+    Short of wpe_v7 with no extern references.
+    Applicable in for-loops.
     """
+
+    if mode == 'full':
+        s = Ellipsis
+    elif mode == 'valid':
+        s = [Ellipsis, slice(delay + K - 1, None)]
+    else:
+        raise ValueError(mode)
+
     X = np.copy(Y)
     Y_tilde = build_y_tilde(Y, K, delay)
     for iteration in range(iterations):
-        inverse_power = get_power_inverse(X, neighborhood=neighborhood)
+        inverse_power = get_power_inverse(X, delta=delta)
         Y_tilde_inverse_power = Y_tilde * inverse_power[..., None, :]
-        R = np.matmul(Y_tilde_inverse_power, hermite(Y_tilde))
-        P = np.matmul(Y_tilde_inverse_power, hermite(Y))
+        R = np.matmul(Y_tilde_inverse_power[s], hermite(Y_tilde[s]))
+        P = np.matmul(Y_tilde_inverse_power[s], hermite(Y[s]))
         G = _stable_solve(R, P)
         X = Y - (hermite(G) @ Y_tilde)
 
     return X
 
 
-def wpe_v7(Y, K=10, delay=3, iterations=3, neighborhood=0, mode='cut'):
+def wpe_v7(Y, K=10, delay=3, iterations=3, delta=0, mode='full'):
     """
 
-    mode=='pad':
-        - Pad Y with zeros on the left for the estimation of the correlation
-          matrix and vector. This value optimizes the cost function of wpe.
-    mode=='cut':
-        - Consider only valid slices of observations for the estimation of the
-          correlation and matrix and vector.
-
-    consider_inital_sampels_in_est
     """
     X = Y
     Y_tilde = build_y_tilde(Y, K, delay)
 
-    if mode == 'pad':
+    if mode == 'full':
         s = Ellipsis
-    elif mode == 'cut':
+    elif mode == 'valid':
         s = [Ellipsis, slice(delay + K - 1, None)]
     else:
         raise ValueError(mode)
 
     for iteration in range(iterations):
-        inverse_power = get_power_inverse(X, neighborhood=neighborhood)
+        inverse_power = get_power_inverse(X, delta=delta)
         G = get_filter_matrix_v7(Y=Y[s], Y_tilde=Y_tilde[s], inverse_power=inverse_power[s])
         X = perform_filter_operation_v5(Y=Y, Y_tilde=Y_tilde, filter_matrix=G)
     return X
 
 
-def wpe_v8(Y, K=10, delay=3, iterations=3, neighborhood=0):
+def wpe_v8(Y, K=10, delay=3, iterations=3, delta=0, mode='full'):
+    """
+    v8 is faster than v7 and offers an optional batch mode.
+    """
     if Y.ndim == 2:
         return wpe_v6(
             Y,
             K=K,
             delay=delay,
             iterations=iterations,
-            neighborhood=neighborhood,
+            delta=delta,
+            mode=mode
         )
     elif Y.ndim == 3:
         batch_axis = 0
@@ -445,7 +396,8 @@ def wpe_v8(Y, K=10, delay=3, iterations=3, neighborhood=0):
                 K=K,
                 delay=delay,
                 iterations=iterations,
-                neighborhood=neighborhood,
+                delta=delta,
+                mode=mode
             ))
         return np.stack(out, axis=batch_axis)
     else:
@@ -479,7 +431,7 @@ def abs_square(x: np.ndarray):
         return x ** 2
 
 
-def get_power_inverse(signal, neighborhood=0):
+def get_power_inverse(signal, delta=0):
     """
     Assumes single frequency bin with shape (D, T).
 
@@ -495,18 +447,18 @@ def get_power_inverse(signal, neighborhood=0):
     """
     power = np.mean(abs_square(signal), axis=-2)
 
-    if np.isposinf(neighborhood):
+    if np.isposinf(delta):
         power = np.broadcast_to(np.mean(power, axis=-1, keepdims=True), power.shape)
-    elif neighborhood > 0:
-        assert int(neighborhood) == neighborhood, neighborhood
-        neighborhood = int(neighborhood)
+    elif delta > 0:
+        assert int(delta) == delta, delta
+        delta = int(delta)
         import bottleneck as bn
         # Handle the corner case correctly (i.e. sum() / count)
-        power = bn.move_mean(power, neighborhood*2+1, min_count=1)
-    elif neighborhood == 0:
+        power = bn.move_mean(power, delta*2+1, min_count=1)
+    elif delta == 0:
         pass
     else:
-        raise ValueError(neighborhood)
+        raise ValueError(delta)
     eps = 1e-10 * np.max(power)
     inverse_power = 1 / np.maximum(power, eps)
     return inverse_power
@@ -873,7 +825,7 @@ def main():
     D, T, F = Y.shape
     for f in tqdm(range(F), total=F):
         K = get_K(f)
-        X[:, :, f] = wpe_v5(Y[:, :, f], K=K, delay=delay, iterations=iterations)
+        X[:, :, f] = wpe_v7(Y[:, :, f], K=K, delay=delay, iterations=iterations)
 
     x = istft(X, size=stft_size, shift=stft_shift)
 
