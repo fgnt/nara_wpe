@@ -272,7 +272,9 @@ def hermite(x):
 
 def wpe_v0(Y, K=10, delay=3, iterations=3, delta=0, mode='full'):
     """
-
+    Closest implementation to
+    https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=6255769 but rather
+    slow.
     Args:
         Y: Complex valued STFT signal with shape (F, D, T) or (D, T).
         K: Filter order
@@ -289,7 +291,7 @@ def wpe_v0(Y, K=10, delay=3, iterations=3, delta=0, mode='full'):
 
 
     Returns:
-        Estimated signal with shape (D, T, F)
+        Estimated signal with the same shape as Y
 
     """
     if mode == 'full':
@@ -310,13 +312,12 @@ def wpe_v0(Y, K=10, delay=3, iterations=3, delta=0, mode='full'):
     elif Y.ndim == 3:
         F = Y.shape[0]
         for f in range(F):
-            X[f, :, :] = wpe(
+            X[f, :, :] = wpe_v0(
                 Y[f, :, :],
                 K=K,
                 delay=delay,
                 iterations=iterations,
-                delta=delta,
-                mode=mode
+                delta=delta
             )
     else:
         raise NotImplementedError('Input shape is to be (F, D, T) or (D, T).')
@@ -465,6 +466,10 @@ def get_power_inverse(signal, delta=0):
 
 
 def get_Psi(Y, t, K):
+    """
+    Psi from https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=6255769
+    equation 31
+    """
     D = Y.shape[0]
 
     def get_Y_tilde(t_):
