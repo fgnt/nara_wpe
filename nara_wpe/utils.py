@@ -174,7 +174,7 @@ def stft(
         window_length,
         shift=shift,
         axis=axis,
-        end='pad' if pad else 'cut'
+        end='full' if pad else 'valid'
     )
 
     letters = string.ascii_lowercase[:time_signal_seg.ndim]

@@ -289,7 +289,7 @@ def wpe_v0(Y, K=10, delay=3, iterations=3, delta=0, mode='full'):
 
 
     Returns:
-        Estimated signal with same shape as Y.
+        Estimated signal with shape (D, T, F)
 
     """
     if mode == 'full':
@@ -304,7 +304,7 @@ def wpe_v0(Y, K=10, delay=3, iterations=3, delta=0, mode='full'):
         for iteration in range(iterations):
             inverse_power = get_power_inverse(X, delta=delta)
             filter_matrix_conj = get_filter_matrix_conj_v5(
-                Y, inverse_power, K, delay
+                Y[s], inverse_power[s], K, delay
             )
             X = perform_filter_operation_v4(Y, filter_matrix_conj, K, delay)
     elif Y.ndim == 3:
@@ -351,7 +351,7 @@ def wpe_v6(Y, K=10, delay=3, iterations=3, delta=0, mode='full'):
 
 def wpe_v7(Y, K=10, delay=3, iterations=3, delta=0, mode='full'):
     """
-
+    Modular wpe version.
     """
     X = Y
     Y_tilde = build_y_tilde(Y, K, delay)
