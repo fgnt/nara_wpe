@@ -489,10 +489,10 @@ def get_power_online(signal):
     Calculates power over last to frames of `signal`
 
     Args:
-        signal (tf.Tensor): Single frequency signal with shape (T, F, D).
+        signal : Single frequency signal with shape (T, F, D).
 
     Returns:
-        tf.Tensor: Inverse power with shape (F,)
+        Inverse power with shape (F,)
 
     """
     power_estimate = np.real(signal) ** 2 + np.imag(signal) ** 2
@@ -506,34 +506,61 @@ def get_power_online(signal):
     return power_estimate
 
 
-def get_power_inverse(signal, psd_context=0):
+def get_power(signal, psd_context=0):
     """
-    Assumes single frequency bin with shape (D, T).
+    Calculates power for single frequency signal.
+    In case psd_context is an tuple the two values
+    are describing the left and right hand context.
 
-    >>> s = 1 / np.array([np.arange(1, 6)]*3)
-    >>> get_power_inverse(s)
-    array([ 1.,  4.,  9., 16., 25.])
-    >>> get_power_inverse(s * 0 + 1, 1)
-    array([1., 1., 1., 1., 1.])
-    >>> get_power_inverse(s, 1)
-    array([ 1.        ,  1.6       ,  2.20408163,  7.08196721, 14.04421326])
-    >>> get_power_inverse(s, np.inf)
-    array([3.41620801, 3.41620801, 3.41620801, 3.41620801, 3.41620801])
+    Args:
+        signal: (D, T)
+        psd_context: tuple or int
     """
     power = np.mean(abs_square(signal), axis=-2)
 
-    if np.isposinf(psd_context):
-        power = np.broadcast_to(np.mean(power, axis=-1, keepdims=True), power.shape)
-    elif psd_context > 0:
-        assert int(psd_context) == psd_context, psd_context
-        psd_context = int(psd_context)
-        import bottleneck as bn
-        # Handle the corner case correctly (i.e. sum() / count)
-        power = bn.move_mean(power, psd_context*2+1, min_count=1)
+
+    if psd_context is not 0:
+        from scipy import signal
+        if isinstance(psd_context, tuple):
+            context = psd_context[0] + 1 + psd_context[1]
+        else:
+            assert int(psd_context) == psd_context, psd_context
+            context = int(2 * psd_context + 1)
+            psd_context = (psd_context, psd_context)
+
+        power = signal.correlate(
+            power,
+            np.ones(context),
+            mode='full'
+        )[psd_context[1]:-psd_context[0]]
+
+        denom = np.correlate(
+            np.zeros_like(power) + 1,
+            np.ones(context),
+            mode='full'
+        )[psd_context[1]:-psd_context[0]]
+
+        power /= denom
+
     elif psd_context == 0:
         pass
     else:
         raise ValueError(psd_context)
+
+    return power
+
+
+def get_power_inverse(signal, psd_context=0):
+    """
+    Assumes single frequency bin with shape (D, T).
+
+    Args:
+        signal: (D, T)
+        psd_context: tuple or int
+    """
+
+    power = get_power(signal, psd_context)
+
     eps = 1e-10 * np.max(power)
     inverse_power = 1 / np.maximum(power, eps)
     return inverse_power
