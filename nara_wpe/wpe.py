@@ -486,41 +486,34 @@ def abs_square(x: np.ndarray):
     
 def get_power_online(signal):
     """
-    Calculates power over last to frames of `signal`
 
     Args:
-        signal : Single frequency signal with shape (T, F, D).
-
+        signal : Single frequency signal with shape (F, D, T).
     Returns:
         Inverse power with shape (F,)
 
     """
-    power_estimate = np.real(signal) ** 2 + np.imag(signal) ** 2
-    power_estimate += np.pad(
-        power_estimate,
-        ((1, 0), (0, 0), (0, 0)),
-        mode='constant'
-    )[:-1, :]
-    power_estimate /= 2
-    power_estimate = np.mean(power_estimate, axis=(0, -1))
+    power_estimate = get_power(signal)
+    power_estimate = np.mean(power_estimate, -1)
     return power_estimate
 
 
 def get_power(signal, psd_context=0):
     """
-    Calculates power for single frequency signal.
+
     In case psd_context is an tuple the two values
     are describing the left and right hand context.
 
     Args:
-        signal: (D, T)
+        signal: (F, D, T) or (D, T)
         psd_context: tuple or int
     """
+    if len(signal.shape) == 2:
+        signal = signal[None, ...]
+
     power = np.mean(abs_square(signal), axis=-2)
 
-
     if psd_context is not 0:
-        from scipy import signal
         if isinstance(psd_context, tuple):
             context = psd_context[0] + 1 + psd_context[1]
         else:
@@ -528,13 +521,17 @@ def get_power(signal, psd_context=0):
             context = int(2 * psd_context + 1)
             psd_context = (psd_context, psd_context)
 
-        power = signal.correlate(
+        power = np.apply_along_axis(
+            np.correlate,
+            0,
             power,
             np.ones(context),
             mode='full'
         )[psd_context[1]:-psd_context[0]]
 
-        denom = np.correlate(
+        denom = np.apply_along_axis(
+            np.correlate,
+            0,
             np.zeros_like(power) + 1,
             np.ones(context),
             mode='full'
@@ -546,8 +543,7 @@ def get_power(signal, psd_context=0):
         pass
     else:
         raise ValueError(psd_context)
-
-    return power
+    return np.squeeze(power)
 
 
 def get_power_inverse(signal, psd_context=0):
