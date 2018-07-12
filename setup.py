@@ -13,7 +13,7 @@ import numpy
 here = path.abspath(path.dirname(__file__))
 
 # Get the long description from the relevant file
-with open(path.join(here, 'DESCRIPTION.rst'), encoding='utf-8') as f:
+with open('DESCRIPTION.rst', encoding='utf-8') as f:
     long_description = f.read()
 
 st.setup(
