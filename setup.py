@@ -73,6 +73,7 @@ st.setup(
         'tqdm',
         'soundfile',
         'bottleneck',
+        'click'
     ],
 
     # List additional groups of dependencies here (e.g. development

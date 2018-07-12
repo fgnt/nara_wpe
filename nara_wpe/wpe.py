@@ -1,6 +1,7 @@
 import functools
 import operator
 
+import click
 import numpy as np
 
 
@@ -870,70 +871,114 @@ def perform_filter_operation_v5(Y, Y_tilde, filter_matrix):
     return X
 
 
-def main():
+@click.command()
+@click.option(
+    '--channels',
+    default=8,
+    help='Audio Channels D'
+)
+@click.option(
+    '--sampling_rate',
+    default=16000,
+    help='Sampling rate of audio'
+)
+@click.option(
+    '--file_template',
+    default='AMI_WSJ20-Array1-{}_T10c0201.wav',
+    help='Audio example. Full path required'
+)
+@click.option(
+    '--taps_frequency_dependent',
+    is_flag=True,
+    help='Whether taps are frequency dependent or not'
+)
+@click.option(
+    '--delay',
+    default=3,
+    help='Delay'
+)
+@click.option(
+    '--iterations',
+    default=5,
+    help='Iterations of WPE'
+)
+def main(channels, sampling_rate, file_template, taps_frequency_dependent,
+         delay, iterations):
+    """
+    User interface for WPE. The defaults of the command line interface are
+    suited for example audio files of nara_wpe.
+
+     'Yoshioka2012GeneralWPE'
+        sampling_rate = 8000
+        delay = 2
+        iterations = 2
+
+    """
     from nara_wpe import project_root
     import soundfile as sf
     from nara_wpe.utils import stft
-    from nara_wpe.utils import istft_loop as istft
+    from nara_wpe.utils import istft
     from nara_wpe.utils import get_stft_center_frequencies
     from tqdm import tqdm
     from librosa.core.audio import resample
 
-    channels = 8
+    stft_options = dict(
+        size=512,
+        shift=128,
+        window_length=None,
+        fading=True,
+        pad=True,
+        symmetric_window=False
+    )
 
-    parameter_set = 'Katka'
-
-    if parameter_set == 'Katka':
-        sampling_rate = 16000
-        stft_size, stft_shift = 512, 128
-        delay = 3
-        iterations = 5
-
-        def get_K(f):
-            return 10
-
-    elif parameter_set == 'Yoshioka2012GeneralWPE':
-        sampling_rate = 8000
-        stft_size, stft_shift = 128, 64
-        delay = 2
-        iterations = 2
-
-        def get_taps(f):
+    def get_taps(f, mode=taps_frequency_dependent):
+        if mode:
             if center_frequencies[f] < 800:
                 taps = 18
             elif center_frequencies[f] < 1500:
                 taps = 15
             else:
                 taps = 12
-            return taps
+        else:
+            taps = 10
+        return taps
 
+    if file_template == 'AMI_WSJ20-Array1-{}_T10c0201.wav':
+        signal_list = [
+            sf.read(str(project_root / 'data' / file_template.format(d + 1)))[0]
+            for d in range(channels)
+            ]
     else:
-        raise ValueError
-
-    file_template = 'AMI_WSJ20-Array1-{}_T10c0201.wav'
-    signal_list = [
-        sf.read(str(project_root / 'data' / file_template.format(d + 1)))[0]
-        for d in range(channels)
-        ]
+        signal = sf.read(file_template)[0].transpose(1, 0)
+        signal_list = list(signal)
     signal_list = [resample(x_, 16000, sampling_rate) for x_ in signal_list]
     y = np.stack(signal_list, axis=0)
 
-    center_frequencies = get_stft_center_frequencies(stft_size, sampling_rate)
+    center_frequencies = get_stft_center_frequencies(
+        stft_options['size'],
+        sampling_rate
+    )
 
-    Y = stft(y, size=stft_size, shift=stft_shift)
+    Y = stft(y, **stft_options)
 
     X = np.copy(Y)
     D, T, F = Y.shape
     for f in tqdm(range(F), total=F):
         taps = get_taps(f)
-        X[:, :, f] = wpe_v7(Y[:, :, f], taps=taps, delay=delay, iterations=iterations)
+        X[:, :, f] = wpe_v7(
+            Y[:, :, f],
+            taps=taps,
+            delay=delay,
+            iterations=iterations
+        )
 
-    x = istft(X, size=stft_size, shift=stft_shift)
+    x = istft(X, size=stft_options['size'], shift=stft_options['shift'])
 
     sf.write(
         str(project_root / 'data' / 'wpe_out.wav'),
         x[0], samplerate=sampling_rate
     )
+    print('Output in {}'.format(str(project_root / 'data' / 'wpe_out.wav')))
 
 
 if __name__ == '__main__':
