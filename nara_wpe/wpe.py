@@ -489,7 +489,7 @@ def get_power_online(signal):
     """
 
     Args:
-        signal : Single frequency signal with shape (F, D, T).
+        signal : Signal with shape (F, D, T).
     Returns:
         Inverse power with shape (F,)
 
@@ -884,8 +884,7 @@ def perform_filter_operation_v5(Y, Y_tilde, filter_matrix):
 )
 @click.option(
     '--file_template',
-    default='AMI_WSJ20-Array1-{}_T10c0201.wav',
-    help='Audio example. Full path required'
+    help='Audio example. Full path required. Included example: AMI_WSJ20-Array1-{}_T10c0201.wav'
 )
 @click.option(
     '--taps_frequency_dependent',
