@@ -479,6 +479,115 @@ def abs_square(x: np.ndarray):
         return x ** 2
 
 
+def window_mean_slow(x, lr_context):
+    """
+    Does not support axis because of np.convolve.
+
+    >>> window_mean_slow([1, 1, 1, 1, 1], 1)
+    array([1., 1., 1., 1., 1.])
+    >>> window_mean_slow([1, 2, 3, 4, 5], 1)
+    array([1.5, 2. , 3. , 4. , 4.5])
+    >>> x = [1, 1, 13, 1, 1]
+    >>> np.testing.assert_equal(window_mean_slow(x, (0, 1)), [1, 7, 7, 1, 1])
+    >>> np.testing.assert_equal(window_mean_slow(x, (1, 0)), [1, 1, 7, 7, 1])
+    >>> np.testing.assert_equal(window_mean_slow(x, (0, 2)), [5, 5, 5, 1, 1])
+    >>> np.testing.assert_equal(window_mean_slow(x, (2, 0)), [1, 1, 5, 5, 5])
+    >>> np.testing.assert_equal(window_mean_slow(x, (1, 2)), [5, 4, 4, 5, 1])
+    >>> np.testing.assert_equal(window_mean_slow(x, (2, 1)), [1, 5, 4, 4, 5])
+    """
+    # axis = -1
+    if isinstance(lr_context, int):
+        lr_context = [lr_context, lr_context]
+    assert len(lr_context) == 2, lr_context
+    l_context, r_context = lr_context
+
+    x = np.asarray(x)
+    filter = np.ones(np.sum(lr_context) + 1)
+    conv = np.convolve(x, filter, mode='full')  # ToDo: axis
+    count = np.convolve(np.ones(x.shape, np.int64), filter, mode='full')  # ToDo: axis
+
+    s = slice(r_context, conv.shape[-1] - l_context)  # ToDo: axis
+    return conv[s] / count[s]
+
+
+def window_mean(x, lr_context, axis=-1):
+    """
+    Take the mean of x at each index with a left and right context.
+    Pseudo code for lr_context == (1, 1):
+        y = np.zeros(...)
+        for i in range(...):
+            if not edge_case(i):
+                y[i] = (x[i-1] + x[i] + x[i + 1]) / 3
+            elif i == 0:
+                y[i] = (x[i] + x[i] +1) / 2
+            else:
+                y[i] = (x[i -1] + x[i]) / 2
+        return y
+
+    >>> window_mean([1, 1, 1, 1, 1], 1)
+    array([1., 1., 1., 1., 1.])
+    >>> window_mean([1, 2, 3, 4, 5], 1)
+    array([1.5, 2. , 3. , 4. , 4.5])
+    >>> x = [1, 1, 13, 1, 1]
+    >>> np.testing.assert_equal(window_mean(x, (0, 1)), [1, 7, 7, 1, 1])
+    >>> np.testing.assert_equal(window_mean(x, (1, 0)), [1, 1, 7, 7, 1])
+    >>> np.testing.assert_equal(window_mean(x, (0, 2)), [5, 5, 5, 1, 1])
+    >>> np.testing.assert_equal(window_mean(x, (2, 0)), [1, 1, 5, 5, 5])
+    >>> np.testing.assert_equal(window_mean(x, (1, 2)), [5, 4, 4, 5, 1])
+    >>> np.testing.assert_equal(window_mean(x, (2, 1)), [1, 5, 4, 4, 5])
+    >>> np.testing.assert_equal(window_mean(x, (9, 9)), [3.4] * 5)
+
+    >>> x = np.random.normal(size=(20, 50))
+    >>> lr_context = np.random.randint(0, 5, size=2)
+    >>> a = window_mean(x, lr_context, axis=1)
+    >>> b = window_mean(x, lr_context, axis=-1)
+    >>> c = window_mean(x.T, lr_context, axis=0).T
+    >>> d = [window_mean_slow(s, lr_context) for s in x]
+    >>> np.testing.assert_equal(a, b)
+    >>> np.testing.assert_equal(a, c)
+    >>> np.testing.assert_almost_equal(a, d)
+
+    >>> import bottleneck as bn
+    >>> a = window_mean(x, [lr_context[0], 0], axis=-1)
+    >>> b = bn.move_mean(x, lr_context[0] + 1, min_count=1)
+    >>> np.testing.assert_almost_equal(a, b)
+
+    >>> a = window_mean(x, [lr_context[0], 0], axis=0)
+    >>> b = bn.move_mean(x, lr_context[0] + 1, min_count=1, axis=0)
+    >>> np.testing.assert_almost_equal(a, b)
+
+    """
+    if isinstance(lr_context, int):
+        lr_context = [lr_context + 1, lr_context]
+    else:
+        assert len(lr_context) == 2, lr_context
+        tmp_l_context, tmp_r_context = lr_context
+        lr_context = tmp_l_context + 1, tmp_r_context
+
+    x = np.asarray(x)
+
+    window_length = sum(lr_context)
+    if window_length == 0:
+        return x
+
+    pad_width = np.zeros((x.ndim, 2), dtype=np.int64)
+    pad_width[axis] = lr_context
+
+    first_slice = [slice(None)] * x.ndim
+    first_slice[axis] = slice(sum(lr_context), None)
+    second_slice = [slice(None)] * x.ndim
+    second_slice[axis] = slice(None, -sum(lr_context))
+
+    def foo(x):
+        cumsum = np.cumsum(np.pad(x, pad_width, mode='constant'), axis=axis)
+        return cumsum[first_slice] - cumsum[second_slice]
+
+    ones_shape = [1] * x.ndim
+    ones_shape[axis] = x.shape[axis]
+
+    return foo(x) / foo(np.ones(ones_shape, np.int64))
+
+
 def get_power_inverse(signal, neighborhood=0):
     """
     Assumes single frequency bin with shape (D, T).
@@ -489,7 +598,7 @@ def get_power_inverse(signal, neighborhood=0):
     >>> get_power_inverse(s * 0 + 1, 1)
     array([1., 1., 1., 1., 1.])
     >>> get_power_inverse(s, 1)
-    array([ 1.        ,  1.6       ,  2.20408163,  7.08196721, 14.04421326])
+    array([ 1.6       ,  2.20408163,  7.08196721, 14.04421326, 19.51219512])
     >>> get_power_inverse(s, np.inf)
     array([3.41620801, 3.41620801, 3.41620801, 3.41620801, 3.41620801])
     """
@@ -502,7 +611,9 @@ def get_power_inverse(signal, neighborhood=0):
         neighborhood = int(neighborhood)
         import bottleneck as bn
         # Handle the corner case correctly (i.e. sum() / count)
-        power = bn.move_mean(power, neighborhood*2+1, min_count=1)
+        # Use bottleneck when only left context is requested
+        # power = bn.move_mean(power, neighborhood*2+1, min_count=1)
+        power = window_mean(power, (neighborhood, neighborhood))
     elif neighborhood == 0:
         pass
     else:
