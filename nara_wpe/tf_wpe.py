@@ -691,7 +691,7 @@ def recursive_wpe(
     def dereverb_step(k_, inv_cov_tm1, filter_taps_tm1, enhanced):
         pos = k_ - delay - taps
         input_buffer = Y[pos:k_ + 1]
-        pred, inv_cov_k, filter_taps_k = online_dereverb_step(
+        pred, inv_cov_k, filter_taps_k = online_wpe_step(
             input_buffer, power_estimate[pos],
             inv_cov_tm1, filter_taps_tm1, alpha, taps, delay
         )

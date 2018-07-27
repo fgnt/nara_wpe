@@ -148,7 +148,7 @@ class TestWPE(tf.test.TestCase):
                 Y, iterations=1
             )
             enhanced = sess.run(enhanced)
-        ref = wpe.wpe_v5(self.Y, iterations=1)
+        ref = wpe.wpe_v7(self.Y, iterations=1, statistics_mode='valid')
         np.testing.assert_allclose(enhanced, ref)
 
     def test_batched_wpe(self):
@@ -198,12 +198,12 @@ class TestWPE(tf.test.TestCase):
             power = tf.reduce_mean(tf.real(Y) ** 2 + tf.imag(Y) ** 2, axis=1)
             inv_power = tf.reciprocal(power)
             step_enhanced = tf_wpe.wpe_step(
-                Y, inv_power, K=K, delay=D)
+                Y, inv_power, taps=K, delay=D)
             recursive_enhanced = tf_wpe.recursive_wpe(
                 tf.transpose(Y, (2, 0, 1)),
                 tf.transpose(power),
                 1.,
-                K=K,
+                taps=K,
                 delay=D,
                 only_use_final_filters=True
             )

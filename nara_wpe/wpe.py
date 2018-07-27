@@ -502,12 +502,13 @@ def get_power_online(signal):
 def get_power(signal, psd_context=0):
     """
 
-    In case psd_context is an tuple the two values
-    are describing the left and right hand context.
+    In case psd_context is an tuple with length 2,
+    the two values describe the left and right hand context.
 
     Args:
         signal: (F, D, T) or (D, T)
         psd_context: tuple or int
+
     """
     if len(signal.shape) == 2:
         signal = signal[None, ...]
@@ -553,7 +554,7 @@ def get_power_inverse(signal, psd_context=0):
 
     Args:
         signal: (D, T)
-        psd_context: tuple or int
+        psd_context: tuple or scalar
     """
 
     power = get_power(signal, psd_context)
