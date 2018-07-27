@@ -139,29 +139,29 @@ class TestWPE(unittest.TestCase):
 
     @retry(5)
     def test_wpe_v0_vs_v7(self):
-        desired = wpe.wpe_v0(self.Y, self.K, self.delay, mode='full')
-        actual = wpe.wpe_v7(self.Y, self.K, self.delay, mode='full')
+        desired = wpe.wpe_v0(self.Y, self.K, self.delay, statistics_mode='full')
+        actual = wpe.wpe_v7(self.Y, self.K, self.delay, statistics_mode='full')
         tc.assert_allclose(actual, desired, atol=1e-10)
 
-        desired = wpe.wpe_v0(self.Y, self.K, self.delay, mode='valid')
-        actual = wpe.wpe_v7(self.Y, self.K, self.delay, mode='valid')
+        desired = wpe.wpe_v0(self.Y, self.K, self.delay, statistics_mode='valid')
+        actual = wpe.wpe_v7(self.Y, self.K, self.delay, statistics_mode='valid')
         tc.assert_allclose(actual, desired, atol=1e-10)
 
-        desired = wpe.wpe_v6(self.Y, self.K, self.delay, mode='valid')
-        actual = wpe.wpe_v7(self.Y, self.K, self.delay, mode='full')
+        desired = wpe.wpe_v6(self.Y, self.K, self.delay, statistics_mode='valid')
+        actual = wpe.wpe_v7(self.Y, self.K, self.delay, statistics_mode='full')
         tc.assert_raises(AssertionError, tc.assert_array_equal, desired, actual)
 
     @retry(5)
     def test_wpe_v6_vs_v7(self):
-        desired = wpe.wpe_v6(self.Y, self.K, self.delay, mode='full')
-        actual = wpe.wpe_v7(self.Y, self.K, self.delay, mode='full')
+        desired = wpe.wpe_v6(self.Y, self.K, self.delay, statistics_mode='full')
+        actual = wpe.wpe_v7(self.Y, self.K, self.delay, statistics_mode='full')
         tc.assert_allclose(actual, desired, atol=1e-10)
 
-        desired = wpe.wpe_v6(self.Y, self.K, self.delay, mode='valid')
-        actual = wpe.wpe_v7(self.Y, self.K, self.delay, mode='valid')
+        desired = wpe.wpe_v6(self.Y, self.K, self.delay, statistics_mode='valid')
+        actual = wpe.wpe_v7(self.Y, self.K, self.delay, statistics_mode='valid')
         tc.assert_allclose(actual, desired, atol=1e-10)
 
-        desired = wpe.wpe_v6(self.Y, self.K, self.delay, mode='valid')
-        actual = wpe.wpe_v7(self.Y, self.K, self.delay, mode='full')
+        desired = wpe.wpe_v6(self.Y, self.K, self.delay, statistics_mode='valid')
+        actual = wpe.wpe_v7(self.Y, self.K, self.delay, statistics_mode='full')
         tc.assert_raises(AssertionError, tc.assert_array_equal, desired, actual)
 
