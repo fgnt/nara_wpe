@@ -316,7 +316,7 @@ def batched_wpe(Y, num_frames, taps=10, delay=3, iterations=3, mode='inv'):
             "solve" solves Rx=r for x
 
     Returns:
-        tf.Tensor: Dereverberated signal.
+        tf.Tensor: Dereverberated signal of shape (B, F, D, T).
     """
 
     def _inner_func(signals):
