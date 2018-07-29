@@ -57,41 +57,104 @@ def _batch_wrapper(inner_function, signals, num_frames, time_axis=-1):
 
 
 def get_power_online(signal):
-    """Calculates power over last to frames for `signal`
+    """Calculates power for `signal`
 
         Args:
-            signal (tf.Tensor): Single frequency signal with shape (T, F, D).
+            signal (tf.Tensor): Signal with shape (F, D, T).
 
         Returns:
-            tf.Tensor: Inverse power with shape (F,)
+            tf.Tensor: Power with shape (F,)
 
     """
-    power_estimate = tf.real(signal) ** 2 + tf.imag(signal) ** 2
-    power_estimate += tf.pad(
-        power_estimate,
-        ((1, 0), (0, 0), (0, 0))
-    )[:-1, :]
-    power_estimate /= 2
-    power_estimate = tf.reduce_mean(power_estimate, axis=(0, -1))
+    power_estimate = get_power(signal)
+    power_estimate = tf.reduce_mean(power_estimate, axis=-1)
     return power_estimate
 
 
-def get_power_inverse(signal, channel_axis=0):
+def get_power_inverse(signal):
     """Calculates inverse power for `signal`
 
     Args:
         signal (tf.Tensor): Single frequency signal with shape (D, T).
-        channel_axis (int): Axis of the channel dimension. Will be averaged.
-
+        psd_context: context for power estimation
     Returns:
         tf.Tensor: Inverse power with shape (T,)
 
     """
-    power = tf.reduce_mean(
-        tf.real(signal) ** 2 + tf.imag(signal) ** 2, axis=channel_axis)
+    power = get_power(signal)
     eps = 1e-10 * tf.reduce_max(power)
     inverse_power = tf.reciprocal(tf.maximum(power, eps))
     return inverse_power
+
+
+def get_power(signal, axis=-2):
+    """Calculates power for `signal`
+
+    Args:
+        signal (tf.Tensor): Single frequency signal with shape (D, T) or (F, D, T).
+        axis: reduce_mean axis
+    Returns:
+        tf.Tensor: Power with shape (T,) or (F, T)
+
+    """
+    power = tf.real(signal) ** 2 + tf.imag(signal) ** 2
+    power = tf.reduce_mean(power, axis=axis)
+    
+    return power
+
+
+#def get_power(signal, psd_context=0):
+#    """
+#    Calculates power for single frequency signal.
+#    In case psd_context is an tuple the two values
+#    are describing the left and right hand context.
+#
+#    Args:
+#        signal: (D, T)
+#        psd_context: tuple or int
+#    """
+#    shape = tf.shape(signal)
+#    if len(signal.get_shape()) == 2:
+#        signal = tf.reshape(signal, (1, shape[0], shape[1]))
+#
+#    power = tf.reduce_mean(
+#        tf.real(signal) ** 2 + tf.imag(signal) ** 2,
+#        axis=-2
+#    )
+#
+#    if psd_context is not 0:
+#        if isinstance(psd_context, tuple):
+#            context = psd_context[0] + 1 + psd_context[1]
+#        else:
+#            context = 2 * psd_context + 1
+#            psd_context = (psd_context, psd_context)
+#
+#        power = tf.pad(
+#            power,
+#            ((0, 0), (psd_context[0], psd_context[1])),
+#            mode='constant'
+#        )
+#        print(power)
+#        power = tf.nn.convolution(
+#            power,
+#            tf.ones(context),
+#            padding='VALID'
+#        )[psd_context[1]:-psd_context[0]]
+#
+#        denom = tf.nn.convolution(
+#            tf.zeros_like(power) + 1.,
+#            tf.ones(context),
+#            padding='VALID'
+#        )[psd_context[1]:-psd_context[0]]
+#        print(power)
+#        power /= denom
+#
+#    elif psd_context == 0:
+#        pass
+#    else:
+#        raise ValueError(psd_context)
+#
+#    return tf.squeeze(power, axis=0)
 
 
 def get_correlations(Y, inverse_power, taps, delay):
@@ -628,7 +691,7 @@ def recursive_wpe(
     def dereverb_step(k_, inv_cov_tm1, filter_taps_tm1, enhanced):
         pos = k_ - delay - taps
         input_buffer = Y[pos:k_ + 1]
-        pred, inv_cov_k, filter_taps_k = online_dereverb_step(
+        pred, inv_cov_k, filter_taps_k = online_wpe_step(
             input_buffer, power_estimate[pos],
             inv_cov_tm1, filter_taps_tm1, alpha, taps, delay
         )

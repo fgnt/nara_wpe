@@ -1,6 +1,7 @@
 import functools
 import operator
 
+import click
 import numpy as np
 
 
@@ -486,54 +487,78 @@ def abs_square(x: np.ndarray):
     
 def get_power_online(signal):
     """
-    Calculates power over last to frames of `signal`
 
     Args:
-        signal (tf.Tensor): Single frequency signal with shape (T, F, D).
-
+        signal : Signal with shape (F, D, T).
     Returns:
-        tf.Tensor: Inverse power with shape (F,)
+        Inverse power with shape (F,)
 
     """
-    power_estimate = np.real(signal) ** 2 + np.imag(signal) ** 2
-    power_estimate += np.pad(
-        power_estimate,
-        ((1, 0), (0, 0), (0, 0)),
-        mode='constant'
-    )[:-1, :]
-    power_estimate /= 2
-    power_estimate = np.mean(power_estimate, axis=(0, -1))
+    power_estimate = get_power(signal)
+    power_estimate = np.mean(power_estimate, -1)
     return power_estimate
+
+
+def get_power(signal, psd_context=0):
+    """
+
+    In case psd_context is an tuple with length 2,
+    the two values describe the left and right hand context.
+
+    Args:
+        signal: (F, D, T) or (D, T)
+        psd_context: tuple or int
+
+    """
+    if len(signal.shape) == 2:
+        signal = signal[None, ...]
+
+    power = np.mean(abs_square(signal), axis=-2)
+
+    if psd_context is not 0:
+        if isinstance(psd_context, tuple):
+            context = psd_context[0] + 1 + psd_context[1]
+        else:
+            assert int(psd_context) == psd_context, psd_context
+            context = int(2 * psd_context + 1)
+            psd_context = (psd_context, psd_context)
+
+        power = np.apply_along_axis(
+            np.correlate,
+            0,
+            power,
+            np.ones(context),
+            mode='full'
+        )[psd_context[1]:-psd_context[0]]
+
+        denom = np.apply_along_axis(
+            np.correlate,
+            0,
+            np.zeros_like(power) + 1,
+            np.ones(context),
+            mode='full'
+        )[psd_context[1]:-psd_context[0]]
+
+        power /= denom
+
+    elif psd_context == 0:
+        pass
+    else:
+        raise ValueError(psd_context)
+    return np.squeeze(power)
 
 
 def get_power_inverse(signal, psd_context=0):
     """
     Assumes single frequency bin with shape (D, T).
 
-    >>> s = 1 / np.array([np.arange(1, 6)]*3)
-    >>> get_power_inverse(s)
-    array([ 1.,  4.,  9., 16., 25.])
-    >>> get_power_inverse(s * 0 + 1, 1)
-    array([1., 1., 1., 1., 1.])
-    >>> get_power_inverse(s, 1)
-    array([ 1.        ,  1.6       ,  2.20408163,  7.08196721, 14.04421326])
-    >>> get_power_inverse(s, np.inf)
-    array([3.41620801, 3.41620801, 3.41620801, 3.41620801, 3.41620801])
+    Args:
+        signal: (D, T)
+        psd_context: tuple or scalar
     """
-    power = np.mean(abs_square(signal), axis=-2)
 
-    if np.isposinf(psd_context):
-        power = np.broadcast_to(np.mean(power, axis=-1, keepdims=True), power.shape)
-    elif psd_context > 0:
-        assert int(psd_context) == psd_context, psd_context
-        psd_context = int(psd_context)
-        import bottleneck as bn
-        # Handle the corner case correctly (i.e. sum() / count)
-        power = bn.move_mean(power, psd_context*2+1, min_count=1)
-    elif psd_context == 0:
-        pass
-    else:
-        raise ValueError(psd_context)
+    power = get_power(signal, psd_context)
+
     eps = 1e-10 * np.max(power)
     inverse_power = 1 / np.maximum(power, eps)
     return inverse_power
@@ -847,70 +872,113 @@ def perform_filter_operation_v5(Y, Y_tilde, filter_matrix):
     return X
 
 
-def main():
+@click.command()
+@click.option(
+    '--channels',
+    default=8,
+    help='Audio Channels D'
+)
+@click.option(
+    '--sampling_rate',
+    default=16000,
+    help='Sampling rate of audio'
+)
+@click.option(
+    '--file_template',
+    help='Audio example. Full path required. Included example: AMI_WSJ20-Array1-{}_T10c0201.wav'
+)
+@click.option(
+    '--taps_frequency_dependent',
+    is_flag=True,
+    help='Whether taps are frequency dependent or not'
+)
+@click.option(
+    '--delay',
+    default=3,
+    help='Delay'
+)
+@click.option(
+    '--iterations',
+    default=5,
+    help='Iterations of WPE'
+)
+def main(channels, sampling_rate, file_template, taps_frequency_dependent,
+         delay, iterations):
+    """
+    User interface for WPE. The defaults of the command line interface are
+    suited for example audio files of nara_wpe.
+
+     'Yoshioka2012GeneralWPE'
+        sampling_rate = 8000
+        delay = 2
+        iterations = 2
+
+    """
     from nara_wpe import project_root
     import soundfile as sf
     from nara_wpe.utils import stft
-    from nara_wpe.utils import istft_loop as istft
+    from nara_wpe.utils import istft
     from nara_wpe.utils import get_stft_center_frequencies
     from tqdm import tqdm
     from librosa.core.audio import resample
 
-    channels = 8
+    stft_options = dict(
+        size=512,
+        shift=128,
+        window_length=None,
+        fading=True,
+        pad=True,
+        symmetric_window=False
+    )
 
-    parameter_set = 'Katka'
-
-    if parameter_set == 'Katka':
-        sampling_rate = 16000
-        stft_size, stft_shift = 512, 128
-        delay = 3
-        iterations = 5
-
-        def get_K(f):
-            return 10
-
-    elif parameter_set == 'Yoshioka2012GeneralWPE':
-        sampling_rate = 8000
-        stft_size, stft_shift = 128, 64
-        delay = 2
-        iterations = 2
-
-        def get_taps(f):
+    def get_taps(f, mode=taps_frequency_dependent):
+        if mode:
             if center_frequencies[f] < 800:
                 taps = 18
             elif center_frequencies[f] < 1500:
                 taps = 15
             else:
                 taps = 12
-            return taps
+        else:
+            taps = 10
+        return taps
 
+    if file_template == 'AMI_WSJ20-Array1-{}_T10c0201.wav':
+        signal_list = [
+            sf.read(str(project_root / 'data' / file_template.format(d + 1)))[0]
+            for d in range(channels)
+            ]
     else:
-        raise ValueError
-
-    file_template = 'AMI_WSJ20-Array1-{}_T10c0201.wav'
-    signal_list = [
-        sf.read(str(project_root / 'data' / file_template.format(d + 1)))[0]
-        for d in range(channels)
-        ]
+        signal = sf.read(file_template)[0].transpose(1, 0)
+        signal_list = list(signal)
     signal_list = [resample(x_, 16000, sampling_rate) for x_ in signal_list]
     y = np.stack(signal_list, axis=0)
 
-    center_frequencies = get_stft_center_frequencies(stft_size, sampling_rate)
+    center_frequencies = get_stft_center_frequencies(
+        stft_options['size'],
+        sampling_rate
+    )
 
-    Y = stft(y, size=stft_size, shift=stft_shift)
+    Y = stft(y, **stft_options)
 
     X = np.copy(Y)
     D, T, F = Y.shape
     for f in tqdm(range(F), total=F):
         taps = get_taps(f)
-        X[:, :, f] = wpe_v7(Y[:, :, f], taps=taps, delay=delay, iterations=iterations)
+        X[:, :, f] = wpe_v7(
+            Y[:, :, f],
+            taps=taps,
+            delay=delay,
+            iterations=iterations
+        )
 
-    x = istft(X, size=stft_size, shift=stft_shift)
+    x = istft(X, size=stft_options['size'], shift=stft_options['shift'])
 
     sf.write(
         str(project_root / 'data' / 'wpe_out.wav'),
         x[0], samplerate=sampling_rate
     )
+    print('Output in {}'.format(str(project_root / 'data' / 'wpe_out.wav')))
 
 
 if __name__ == '__main__':
