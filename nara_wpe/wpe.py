@@ -881,7 +881,7 @@ def perform_filter_operation_v5(Y, Y_tilde, filter_matrix):
 )
 @click.option(
     '--output_path',
-    #default=str(project_root / 'data' / 'dereverberation'),
+    default=None,
     help='Output path.'
 )
 @click.option(
@@ -956,8 +956,10 @@ def main(files, output_path, delay, iterations, taps, psd_context):
                 samplerate=sampling_rate
             )
     else:
+        # TODO: this does not work, yet. Idea: Usage of pipelining
         import sys
-        sys.stdout.write(str(x))
+        sys.stdout.write(str(x.tobytes()))
+        sys.stdout.flush()
 
 
 if __name__ == '__main__':
