@@ -73,7 +73,8 @@ st.setup(
         'tqdm',
         'soundfile',
         'bottleneck',
-        'click'
+        'click',
+        'scipy'
     ],
 
     # List additional groups of dependencies here (e.g. development
