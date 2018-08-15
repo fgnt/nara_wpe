@@ -11,12 +11,12 @@ from nara_wpe import project_root
 
 
 class NTTWrapper:
-    def __init__(self, path_to_pkg, output_path):
+    def __init__(self, path_to_pkg, output_dir):
         self.path_to_pkg = Path(path_to_pkg)
-        self.output_path = Path(output_path)
-        self.output_path.mkdir(exist_ok=True)
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(exist_ok=True)
 
-        if not path_to_pkg.exists():
+        if not self.path_to_pkg.exists():
             raise OSError(
                 'NTT WPE package does not exist. It has to be downloaded'
                 'from http://www.kecl.ntt.co.jp/icl/signal/wpe/download.html')
@@ -77,17 +77,18 @@ class NTTWrapper:
         channels = y.shape[1]
         cfg_lines = self.cfg(channels, sampling_rate, iterations, taps)
 
-        with tempfile.NamedTemporaryFile() as cfg_file:
-            for line in cfg_lines:
-                cfg_file.write(line)
+        with tempfile.TemporaryDirectory() as tempdir:
+            with (Path(tempdir) / 'local.m').open('w') as cfg_file:
+                for line in cfg_lines:
+                    cfg_file.write(line)
 
             self.process.set_variable("y", y)
-            self.process.set_variable("cfg", str(cfg_file))
+            self.process.set_variable("cfg", cfg_file.name)
 
             assert np.allclose(self.process.get_variable("y"), y)
-            assert self.process.get_variable("cfg") == str(cfg_file)
+            assert self.process.get_variable("cfg") == cfg_file.name
 
-            self.process.run_code("addpath('" + str(cfg_file) + "');")
+            self.process.run_code("addpath('" + str(cfg_file.name) + "');")
             self.process.run_code("addpath('" + str(self.path_to_pkg) + "');")
 
             print("Dereverbing ...")
@@ -103,13 +104,13 @@ class NTTWrapper:
         if len(files) > 1:
             for i, file in enumerate(files):
                 sf.write(
-                    str(self.output_path / Path(file).name),
+                    str(self.output_dir / Path(file).name),
                     y[i],
                     samplerate=sampling_rate
                 )
         else:
             sf.write(
-                str(self.output_path / Path(files).name),
+                str(self.output_dir / Path(files).name),
                 y,
                 samplerate=sampling_rate
             )
@@ -125,14 +126,9 @@ class NTTWrapper:
     help='It is recommended to save the NTT-WPE package in the cache directory.'
 )
 @click.option(
-    '--output_path',
-    default=str(project_root / 'data' / 'dereverberation'),
+    '--output_dir',
+    default=str(project_root / 'data' / 'dereverberation_ntt'),
     help='Output path.'
-)
-@click.option(
-    '--delay',
-    default=3,
-    help='Delay'
 )
 @click.option(
     '--iterations',
@@ -149,13 +145,13 @@ class NTTWrapper:
     default=0,
     help='Left and right hand context'
 )
-def main(path_to_pkg, files, output_path, delay,
+def main(path_to_pkg, files, output_dir, delay,
          iterations, taps, psd_context):
     """
     A small command line wrapper around the NTT-WPE matlab file.
     http://www.kecl.ntt.co.jp/icl/signal/wpe/
     """
-    wrapper = NTTWrapper(path_to_pkg, output_path)
+    wrapper = NTTWrapper(path_to_pkg, output_dir)
     wrapper(files, delay, iterations, taps, psd_context)
 
 
