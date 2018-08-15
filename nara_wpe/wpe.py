@@ -1,102 +1,16 @@
 import functools
 import operator
+from pathlib import Path
 
 import click
 import numpy as np
+import soundfile as sf
+from tqdm import tqdm
 
-
-def segment_axis(
-        x,
-        length,
-        shift,
-        axis=-1,
-        end:  "in ['pad', 'cut', None]"='cut',
-        pad_mode='constant',
-        pad_value=0,
-):
-
-    """Generate a new array that chops the given array along the given axis
-     into overlapping frames.
-
-    Args:
-        x: The array to segment
-        length: The length of each frame
-        shift: The number of array elements by which to step forward
-        axis: The axis to operate on; if None, act on the flattened array
-        end: What to do with the last frame, if the array is not evenly
-                divisible into pieces. Options are:
-                * 'cut'   Simply discard the extra values
-                * None    No end treatment. Only works when fits perfectly.
-                * 'pad'   Pad with a constant value
-        pad_mode:
-        pad_value: The value to use for end='full'
-
-    Examples:
-        >>> segment_axis(np.arange(10), 4, 2)
-        array([[0, 1, 2, 3],
-               [2, 3, 4, 5],
-               [4, 5, 6, 7],
-               [6, 7, 8, 9]])
-        >>> segment_axis(np.arange(5).reshape(5), 4, 1, axis=0)
-        array([[0, 1, 2, 3],
-               [1, 2, 3, 4]])
-        >>> segment_axis(np.arange(10).reshape(2, 5), 4, 1, axis=-1)
-        array([[[0, 1, 2, 3],
-                [1, 2, 3, 4]],
-        <BLANKLINE>
-               [[5, 6, 7, 8],
-                [6, 7, 8, 9]]])
-        >>> segment_axis(np.arange(10).reshape(5, 2).T, 4, 1, axis=1)
-        array([[[0, 2, 4, 6],
-                [2, 4, 6, 8]],
-        <BLANKLINE>
-               [[1, 3, 5, 7],
-                [3, 5, 7, 9]]])
-        >>> a = np.arange(5).reshape(5)
-        >>> b = segment_axis(a, 4, 2, axis=0)
-        >>> a += 1  # a and b point to the same memory
-        >>> b
-        array([[1, 2, 3, 4]])
-
-    """
-    axis = axis % x.ndim
-    elements = x.shape[axis]
-
-    if shift <= 0:
-        raise ValueError('Can not shift forward by less than 1 element.')
-
-    # full
-    if end == 'pad':
-        npad = np.zeros([x.ndim, 2], dtype=np.int)
-        pad_fn = functools.partial(
-            np.pad, pad_width=npad, mode=pad_mode, constant_values=pad_value
-        )
-        if elements < length:
-            npad[axis, 1] = length - elements
-            x = pad_fn(x)
-        elif not shift == 1 and not (elements + shift - length) % shift == 0:
-            npad[axis, 1] = shift - ((elements + shift - length) % shift)
-            x = pad_fn(x)
-    elif end is None:
-        assert (elements + shift - length) % shift == 0, \
-            '{} = elements({}) + shift({}) - length({})) % shift({})' \
-            ''.format((elements + shift - length) % shift,
-                      elements, shift, length, shift)
-    elif end == 'cut':
-        pass
-    else:
-        raise ValueError(end)
-
-    shape = list(x.shape)
-    del shape[axis]
-    shape.insert(axis, (elements + shift - length) // shift)
-    shape.insert(axis + 1, length)
-
-    strides = list(x.strides)
-    strides.insert(axis, shift * strides[axis])
-
-    return np.lib.stride_tricks.as_strided(x, strides=strides, shape=shape)
-
+from nara_wpe import project_root
+from nara_wpe.utils import stft
+from nara_wpe.utils import istft
+from nara_wpe.utils import segment_axis_v2 as segment_axis
 
 def _lstsq(A, B):
     assert A.shape == B.shape, (A.shape, B.shape)
@@ -458,6 +372,94 @@ def online_wpe_step(
     )
     
     return pred, inv_cov_k, filter_taps_k
+
+
+class OnlineWPE:
+    """
+    A frame online approach which carries the covariance matrices
+    as well as the filter taps and the power estimate.
+
+    Args:
+        taps (int): Number of filter taps
+        delay (int): Delay in frames
+        alpha (float): Smoothing factor, 0.9999
+        power_estimate: Estimate of power as an initialization
+
+    Returns:
+        Dereverberated frame of shape (F, D)
+    """
+
+    def __init__(self, taps, delay, alpha, power_estimate, channel=8,
+                 frequency_bins=257):
+        self.alpha = alpha
+        self.taps = taps
+        self.delay = delay
+
+        self.inv_cov = np.stack(
+            [np.identity(channel * taps) for a in range(frequency_bins)])
+        self.filter_taps = np.zeros((frequency_bins, channel * taps, channels))
+        self.power = np.ones(frequency_bins) * power_estimate
+        self.buffer = np.zeros(
+            (self.taps + self.delay + 1, frequency_bins, channel),
+            np.complex128)
+
+    def step(self, frame):
+        assert self.buffer.shape[-2:] == frame.shape[-2:], "Set channel and frequency bins."
+
+        F, channel = frame.shape[-2:]
+        window = self.buffer[:-self.delay - 1]
+        window = window.transpose(1, 2, 0).reshape((F, self.taps * channel))
+
+        prediction = (
+            frame -
+            np.einsum('fid,fi->fd', np.conjugate(self.filter_taps), window)
+        )
+
+        self._update_buffer(frame)
+        self._update_power_buffer()
+        self._update_kalman_gain(window)
+        self._update_inv_cov(window)
+        self._update_taps(prediction)
+
+        return prediction
+
+    def _update_taps(self, pred):
+        self.filter_taps = (
+            self.filter_taps +
+            np.einsum('fi,fm->fim', self.kalman_gain, np.conjugate(pred))
+        )
+
+    def _update_inv_cov(self, window):
+        self.inv_cov = self.inv_cov - np.einsum(
+            'fj,fjm,fi->fim',
+            np.conjugate(window),
+            self.inv_cov,
+            self.kalman_gain,
+            optimize='optimal'
+        )
+        self.inv_cov /= self.alpha
+
+    def _update_kalman_gain(self, window):
+        nominator = np.einsum('fij,fj->fi', self.inv_cov, window)
+        denominator = (self.alpha * self.power).astype(window.dtype)
+        denominator += np.einsum('fi,fi->f', np.conjugate(window), nominator)
+        self.kalman_gain = nominator / denominator[:, None]
+
+    def _update_power(self, beta=0.95):
+        current_frame = self.buffer[-1]
+        current_power = current_frame.real ** 2 + current_frame.imag ** 2
+        self.power = self.power * beta + (1 - beta) * np.mean(current_power, -1)
+
+    def _update_power_buffer(self):
+        self.power = np.mean(
+            get_power(self.buffer[-2:].transpose(1, 2, 0)),
+            -1
+        )
+
+    def _update_buffer(self, frame):
+        self.buffer = np.roll(self.buffer, -1, axis=0)
+        assert frame.shape[-2:] == self.buffer.shape[-2:]
+        self.buffer[-1] = frame
 
 
 def abs_square(x: np.ndarray):
@@ -873,24 +875,14 @@ def perform_filter_operation_v5(Y, Y_tilde, filter_matrix):
 
 
 @click.command()
-@click.option(
-    '--channels',
-    default=8,
-    help='Audio Channels D'
+@click.argument(
+    'files', nargs=-1,
+    type=click.Path(exists=True),
 )
 @click.option(
-    '--sampling_rate',
-    default=16000,
-    help='Sampling rate of audio'
-)
-@click.option(
-    '--file_template',
-    help='Audio example. Full path required. Included example: AMI_WSJ20-Array1-{}_T10c0201.wav'
-)
-@click.option(
-    '--taps_frequency_dependent',
-    is_flag=True,
-    help='Whether taps are frequency dependent or not'
+    '--output_path',
+    #default=str(project_root / 'data' / 'dereverberation'),
+    help='Output path.'
 )
 @click.option(
     '--delay',
@@ -902,8 +894,17 @@ def perform_filter_operation_v5(Y, Y_tilde, filter_matrix):
     default=5,
     help='Iterations of WPE'
 )
-def main(channels, sampling_rate, file_template, taps_frequency_dependent,
-         delay, iterations):
+@click.option(
+    '--taps',
+    default=10,
+    help='Number of filter taps of WPE'
+)
+@click.option(
+    '--psd_context',
+    default=0,
+    help='Left and right hand context'
+)
+def main(files, output_path, delay, iterations, taps, psd_context):
     """
     User interface for WPE. The defaults of the command line interface are
     suited for example audio files of nara_wpe.
@@ -914,14 +915,6 @@ def main(channels, sampling_rate, file_template, taps_frequency_dependent,
         iterations = 2
 
     """
-    from nara_wpe import project_root
-    import soundfile as sf
-    from nara_wpe.utils import stft
-    from nara_wpe.utils import istft
-    from nara_wpe.utils import get_stft_center_frequencies
-    from tqdm import tqdm
-    from librosa.core.audio import resample
-
     stft_options = dict(
         size=512,
         shift=128,
@@ -931,54 +924,40 @@ def main(channels, sampling_rate, file_template, taps_frequency_dependent,
         symmetric_window=False
     )
 
-    def get_taps(f, mode=taps_frequency_dependent):
-        if mode:
-            if center_frequencies[f] < 800:
-                taps = 18
-            elif center_frequencies[f] < 1500:
-                taps = 15
-            else:
-                taps = 12
-        else:
-            taps = 10
-        return taps
-
-    if file_template == 'AMI_WSJ20-Array1-{}_T10c0201.wav':
+    if len(files) > 1:
         signal_list = [
-            sf.read(str(project_root / 'data' / file_template.format(d + 1)))[0]
-            for d in range(channels)
+            sf.read(str(file))[0]
+            for file in files
             ]
+        y = np.stack(signal_list, axis=0)
+        sampling_rate = sf.read(str(files[0]))[1]
     else:
-        signal = sf.read(file_template)[0].transpose(1, 0)
-        signal_list = list(signal)
-    signal_list = [resample(x_, 16000, sampling_rate) for x_ in signal_list]
-    y = np.stack(signal_list, axis=0)
+        y, sampling_rate = sf.read(files)
+        y = y.transpose(1, 0)
 
-    center_frequencies = get_stft_center_frequencies(
-        stft_options['size'],
-        sampling_rate
-    )
+    Y = stft(y, **stft_options).transpose(2, 0, 1)
+    Z = wpe_v8(Y, taps, delay, iterations, psd_context).transpose(1, 2, 0)
+    x = istft(Z, size=stft_options['size'], shift=stft_options['shift'])
 
-    Y = stft(y, **stft_options)
-
-    X = np.copy(Y)
-    D, T, F = Y.shape
-    for f in tqdm(range(F), total=F):
-        taps = get_taps(f)
-        X[:, :, f] = wpe_v7(
-            Y[:, :, f],
-            taps=taps,
-            delay=delay,
-            iterations=iterations
-        )
-
-    x = istft(X, size=stft_options['size'], shift=stft_options['shift'])
-
-    sf.write(
-        str(project_root / 'data' / 'wpe_out.wav'),
-        x[0], samplerate=sampling_rate
-    )
-    print('Output in {}'.format(str(project_root / 'data' / 'wpe_out.wav')))
+    if isinstance(output_path, str):
+        output_path = Path(output_path)
+        output_path.mkdir(exist_ok=True)
+        if len(files) > 1:
+            for i, file in enumerate(files):
+                sf.write(
+                    str(output_path / Path(file).name),
+                    x[i],
+                    samplerate=sampling_rate
+                )
+        else:
+            sf.write(
+                str(output_path / Path(files).name),
+                x,
+                samplerate=sampling_rate
+            )
+    else:
+        import sys
+        sys.stdout.write(str(x))
 
 
 if __name__ == '__main__':
