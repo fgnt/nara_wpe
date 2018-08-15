@@ -880,9 +880,9 @@ def perform_filter_operation_v5(Y, Y_tilde, filter_matrix):
     type=click.Path(exists=True),
 )
 @click.option(
-    '--output_path',
+    '--output_dir',
     default=None,
-    help='Output path.'
+    help='Output directory.'
 )
 @click.option(
     '--delay',
@@ -904,7 +904,7 @@ def perform_filter_operation_v5(Y, Y_tilde, filter_matrix):
     default=0,
     help='Left and right hand context'
 )
-def main(files, output_path, delay, iterations, taps, psd_context):
+def main(files, output_dir, delay, iterations, taps, psd_context):
     """
     User interface for WPE. The defaults of the command line interface are
     suited for example audio files of nara_wpe.
@@ -939,19 +939,19 @@ def main(files, output_path, delay, iterations, taps, psd_context):
     Z = wpe_v8(Y, taps, delay, iterations, psd_context).transpose(1, 2, 0)
     x = istft(Z, size=stft_options['size'], shift=stft_options['shift'])
 
-    if isinstance(output_path, str):
-        output_path = Path(output_path)
-        output_path.mkdir(exist_ok=True)
+    if isinstance(output_dir, str):
+        output_dir = Path(output_dir)
+        output_dir.mkdir(exist_ok=True)
         if len(files) > 1:
             for i, file in enumerate(files):
                 sf.write(
-                    str(output_path / Path(file).name),
+                    str(output_dir / Path(file).name),
                     x[i],
                     samplerate=sampling_rate
                 )
         else:
             sf.write(
-                str(output_path / Path(files).name),
+                str(output_dir / Path(files).name),
                 x,
                 samplerate=sampling_rate
             )
