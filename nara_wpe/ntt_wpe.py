@@ -12,8 +12,8 @@ from nara_wpe import project_root
 @click.command()
 @click.option(
     '--path_to_pkg',
-    default='/home/danielha/Documents/whk/wpe_v1.32/',
     type=click.Path(exists=True),
+    help='Path to the NTT WPE package.'
 )
 @click.option(
     '--channels',
@@ -34,6 +34,7 @@ from nara_wpe import project_root
 def main(path_to_pkg, channels, sampling_rate, file_template):
     """
     A small wrapper around the NTT-WPE matlab file.
+    http://www.kecl.ntt.co.jp/icl/signal/wpe/
     """
     path_to_pkg = Path(path_to_pkg)
     cfg = path_to_pkg / 'settings' / 'local.m'
@@ -57,13 +58,12 @@ def main(path_to_pkg, channels, sampling_rate, file_template):
     signal_list = [resample(x_, 16000, sampling_rate) for x_ in signal_list]
     y = np.stack(signal_list, axis=0).transpose(1, 0)
 
-
     # Check number of channels and sampling_rate and set local.m accordingly
     modify_settings = False
     lines = []
     with cfg.open() as infile:
         for line in infile:
-            if 'num_mic = ' in line and not 'num_out' in line:
+            if 'num_mic = ' in line and 'num_out' not in line:
                 if not str(channels) in line:
                     line = 'num_mic = ' + str(channels) + ";\n"
                     modify_settings = True
@@ -85,30 +85,24 @@ def main(path_to_pkg, channels, sampling_rate, file_template):
 
     assert np.allclose(mlab.get_variable("y"), y)
     assert mlab.get_variable("cfg") == str(cfg)
-    
+
     mlab.run_code("addpath('" + str(cfg) + "');")
     mlab.run_code("addpath('" + str(path_to_pkg) + "');")
 
     print("Dereverbing ...")
     msg = mlab.run_code("y = wpe(y, cfg);")
 
-    assert msg['success'] is True, 'WPE has failed.'
+    assert msg['success'] is True, f'WPE has failed. {msg["content"]["stdout"]}'
 
     y = mlab.get_variable("y")
-    print('Finished.')
 
     sf.write(
         str(project_root / 'data' / 'wpe_out.wav'),
-        y[0], samplerate=sampling_rate
+        y, samplerate=sampling_rate
     )
+    print('Finished.')
     print('Output in {}'.format(str(project_root / 'data' / 'wpe_out.wav')))
 
 
 if __name__ == '__main__':
     main()
-
-
-
-
-
-
