@@ -208,6 +208,11 @@ def _stable_solve(A, B):
 
 def build_y_tilde(Y, taps, delay):
     """
+
+    Note: The returned y_tilde consumes a similar amount of memory as Y, because
+        of tricks with strides. Usually the memory consumprion is K times
+        smaller than the memory consumprion of a contignous array,
+
     >>> T, D = 20, 2
     >>> Y = np.arange(start=1, stop=T * D + 1).reshape([T, D]).T
     >>> print(Y)
@@ -227,8 +232,12 @@ def build_y_tilde(Y, taps, delay):
      [ 0  0  0  0  0  1  3  5  7  9 11 13 15 17 19 21 23 25 27 29]
      [ 0  0  0  0  0  2  4  6  8 10 12 14 16 18 20 22 24 26 28 30]]
     >>> Y_tilde = build_y_tilde(Y, taps, 0)
-    >>> print(Y_tilde.shape, (taps*D, T))
-    (8, 20) (8, 20)
+    >>> print(Y_tilde.shape, (taps*D, T), Y_tilde.strides)
+    (8, 20) (8, 20) (-8, 16)
+    >>> print('Pseudo size:', Y_tilde.nbytes)
+    Pseudo size: 1280
+    >>> print('Reak size:', Y_tilde.base.base.base.base.nbytes)
+    Reak size: 368
     >>> print(Y_tilde)
     [[ 1  3  5  7  9 11 13 15 17 19 21 23 25 27 29 31 33 35 37 39]
      [ 2  4  6  8 10 12 14 16 18 20 22 24 26 28 30 32 34 36 38 40]
@@ -253,17 +262,29 @@ def build_y_tilde(Y, taps, delay):
                    constant_values=0)
         return x
 
-    Y_ = segment_axis(pad(Y), taps, 1, axis=-1)
+    # Y_ = segment_axis(pad(Y), K, 1, axis=-1)
+    # Y_ = np.flip(Y_, axis=-1)
+    # if delay > 0:
+    #     Y_ = Y_[..., :-delay, :]
+    # # Y_: ... x D x T x K
+    # Y_ = np.moveaxis(Y_, -1, -3)
+    # # Y_: ... x K x D x T
+    # Y_ = np.reshape(Y_, [*S, K * D, T])
+    # # Y_: ... x KD x T
 
+    # ToDo: write the shape
+    Y_ = pad(Y)
+    Y_ = np.moveaxis(Y_, -1, -2)
     Y_ = np.flip(Y_, axis=-1)
-
+    Y_ = np.ascontiguousarray(Y_)
+    Y_ = np.flip(Y_, axis=-1)
+    Y_ = segment_axis(Y_, taps, 1, axis=-2)
+    Y_ = np.flip(Y_, axis=-2)
     if delay > 0:
-        Y_ = Y_[..., :-delay, :]
-    # Y_: ... x D x T x taps
-    Y_ = np.moveaxis(Y_, -1, -3)
-    # Y_: ... x taps x D x T
-    Y_ = np.reshape(Y_, [*S, taps * D, T])
-    # Y_: ... x taps*D x T
+        Y_ = Y_[..., :-delay, :, :]
+    Y_ = np.reshape(Y_, [*S, T, taps * D])
+    Y_ = np.moveaxis(Y_, -2, -1)
+
     return Y_
 
 
