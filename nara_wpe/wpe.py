@@ -556,11 +556,11 @@ def window_mean(x, lr_context, axis=-1):
         y = np.zeros(...)
         for i in range(...):
             if not edge_case(i):
-                y[i] = (x[i-1] + x[i] + x[i + 1]) / 3
+                y[i] = (x[i - 1] + x[i] + x[i + 1]) / 3
             elif i == 0:
-                y[i] = (x[i] + x[i] +1) / 2
+                y[i] = (x[i] + x[i + 1]) / 2
             else:
-                y[i] = (x[i -1] + x[i]) / 2
+                y[i] = (x[i - 1] + x[i]) / 2
         return y
 
     >>> window_mean([1, 1, 1, 1, 1], 1)
@@ -648,7 +648,7 @@ def get_power_inverse(signal, neighborhood=0):
     elif neighborhood > 0:
         assert int(neighborhood) == neighborhood, neighborhood
         neighborhood = int(neighborhood)
-        import bottleneck as bn
+        # import bottleneck as bn
         # Handle the corner case correctly (i.e. sum() / count)
         # Use bottleneck when only left context is requested
         # power = bn.move_mean(power, neighborhood*2+1, min_count=1)
