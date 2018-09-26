@@ -58,6 +58,13 @@ def segment_axis(
         array([[1, 2, 3, 4]])
 
     """
+
+    if x.__class__.__module__ == 'cupy.core.core':
+        import cupy
+        xp = cupy
+    else:
+        xp = np
+
     axis = axis % x.ndim
     elements = x.shape[axis]
 
@@ -68,7 +75,7 @@ def segment_axis(
     if end == 'pad':
         npad = np.zeros([x.ndim, 2], dtype=np.int)
         pad_fn = functools.partial(
-            np.pad, pad_width=npad, mode=pad_mode, constant_values=pad_value
+            xp.pad, pad_width=npad, mode=pad_mode, constant_values=pad_value
         )
         if elements < length:
             npad[axis, 1] = length - elements
@@ -94,7 +101,12 @@ def segment_axis(
     strides = list(x.strides)
     strides.insert(axis, shift * strides[axis])
 
-    return np.lib.stride_tricks.as_strided(x, strides=strides, shape=shape)
+    if xp == np:
+        return np.lib.stride_tricks.as_strided(x, strides=strides, shape=shape)
+    else:
+        x = x.view()
+        x._set_shape_and_strides(strides=strides, shape=shape)
+        return x
 
 
 def _lstsq(A, B):
