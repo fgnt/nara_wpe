@@ -46,12 +46,6 @@ class TestWPE(unittest.TestCase):
         tc.assert_allclose(r_actual, r_desired)
 
     @retry(5)
-    def test_wpe_v1_vs_v2(self):
-        desired = wpe.wpe_v1(self.Y, self.K, self.delay)
-        actual = wpe.wpe_v2(self.Y, self.K, self.delay)
-        tc.assert_allclose(actual, desired)
-
-    @retry(5)
     def test_filter_operation_v1_vs_v4(self):
         filter_matrix_conj = np.random.normal(size=(self.K, self.D, self.D)) \
             + 1j * np.random.normal(size=(self.K, self.D, self.D))
@@ -63,12 +57,6 @@ class TestWPE(unittest.TestCase):
             self.Y, filter_matrix_conj, self.K, self.delay
         )
         tc.assert_allclose(desired, actual)
-
-    @retry(5)
-    def test_wpe_v1_vs_v4(self):
-        desired = wpe.wpe_v1(self.Y, self.K, self.delay)
-        actual = wpe.wpe_v4(self.Y, self.K, self.delay)
-        tc.assert_allclose(actual, desired)
 
     def test_correlations_narrow_v1_vs_v5(self):
         inverse_power = wpe.get_power_inverse(self.Y)
@@ -136,11 +124,6 @@ class TestWPE(unittest.TestCase):
             atol=1e-10
         )
 
-    @retry(5)
-    def test_wpe_v1_vs_v5(self):
-        desired = wpe.wpe_v1(self.Y, self.K, self.delay)
-        actual = wpe.wpe_v5(self.Y, self.K, self.delay)
-        tc.assert_allclose(actual, desired)
 
     @retry(5)
     def test_delay_zero_cancels_all(self):
@@ -155,17 +138,30 @@ class TestWPE(unittest.TestCase):
         )
 
     @retry(5)
-    def test_wpe_v1_vs_v7(self):
-        desired = wpe.wpe_v1(self.Y, self.K, self.delay)
-        actual = wpe.wpe_v7(self.Y, self.K, self.delay, mode='cut')
-        tc.assert_allclose(actual, desired)
+    def test_wpe_v0_vs_v7(self):
+        desired = wpe.wpe_v0(self.Y, self.K, self.delay, statistics_mode='full')
+        actual = wpe.wpe_v7(self.Y, self.K, self.delay, statistics_mode='full')
+        tc.assert_allclose(actual, desired, atol=1e-10)
 
-        actual = wpe.wpe_v7(self.Y, self.K, self.delay, mode='pad')
-        with tc.assert_raises(Exception):
-            tc.assert_allclose(actual, desired, rtol=1e-3, atol=1e-3)
+        desired = wpe.wpe_v0(self.Y, self.K, self.delay, statistics_mode='valid')
+        actual = wpe.wpe_v7(self.Y, self.K, self.delay, statistics_mode='valid')
+        tc.assert_allclose(actual, desired, atol=1e-10)
+
+        desired = wpe.wpe_v6(self.Y, self.K, self.delay, statistics_mode='valid')
+        actual = wpe.wpe_v7(self.Y, self.K, self.delay, statistics_mode='full')
+        tc.assert_raises(AssertionError, tc.assert_array_equal, desired, actual)
 
     @retry(5)
     def test_wpe_v6_vs_v7(self):
-        desired = wpe.wpe_v6(self.Y, self.K, self.delay)
-        actual = wpe.wpe_v7(self.Y, self.K, self.delay)
+        desired = wpe.wpe_v6(self.Y, self.K, self.delay, statistics_mode='full')
+        actual = wpe.wpe_v7(self.Y, self.K, self.delay, statistics_mode='full')
         tc.assert_allclose(actual, desired, atol=1e-10)
+
+        desired = wpe.wpe_v6(self.Y, self.K, self.delay, statistics_mode='valid')
+        actual = wpe.wpe_v7(self.Y, self.K, self.delay, statistics_mode='valid')
+        tc.assert_allclose(actual, desired, atol=1e-10)
+
+        desired = wpe.wpe_v6(self.Y, self.K, self.delay, statistics_mode='valid')
+        actual = wpe.wpe_v7(self.Y, self.K, self.delay, statistics_mode='full')
+        tc.assert_raises(AssertionError, tc.assert_array_equal, desired, actual)
+
