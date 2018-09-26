@@ -329,7 +329,7 @@ def wpe_v0(Y, K=10, delay=3, iterations=3, psd_context=0, statistics_mode='full'
     elif Y.ndim == 3:
         F = Y.shape[0]
         for f in range(F):
-            X[f, :, :] = wpe(
+            X[f, :, :] = wpe_v0(
                 Y[f, :, :],
                 K=K, delay=delay, iterations=iterations,
                 psd_context=psd_context, statistics_mode=statistics_mode
