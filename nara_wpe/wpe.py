@@ -713,20 +713,20 @@ def get_power_inverse(signal, psd_context=0):
     """
     power = np.mean(abs_square(signal), axis=-2)
 
-    if np.isposinf(neighborhood):
+    if np.isposinf(psd_context):
         power = np.broadcast_to(np.mean(power, axis=-1, keepdims=True), power.shape)
-    elif neighborhood > 0:
-        assert int(neighborhood) == neighborhood, neighborhood
-        neighborhood = int(neighborhood)
+    elif psd_context > 0:
+        assert int(psd_context) == psd_context, psd_context
+        psd_context = int(psd_context)
         # import bottleneck as bn
         # Handle the corner case correctly (i.e. sum() / count)
         # Use bottleneck when only left context is requested
-        # power = bn.move_mean(power, neighborhood*2+1, min_count=1)
-        power = window_mean(power, (neighborhood, neighborhood))
-    elif neighborhood == 0:
+        # power = bn.move_mean(power, psd_context*2+1, min_count=1)
+        power = window_mean(power, (psd_context, psd_context))
+    elif psd_context == 0:
         pass
     else:
-        raise ValueError(neighborhood)
+        raise ValueError(psd_context)
     eps = 1e-10 * np.max(power)
     inverse_power = 1 / np.maximum(power, eps)
     return inverse_power
