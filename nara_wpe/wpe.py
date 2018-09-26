@@ -442,8 +442,9 @@ def wpe_v7(Y, K=10, delay=3, iterations=3, neighborhood=0, mode='cut'):
     return X
 
 
-def wpe_v8(Y, K=10, delay=3, iterations=3, neighborhood=0):
-    if Y.ndim == 2:
+def wpe_v8(Y: np.ndarray, K=10, delay=3, iterations=3, neighborhood=0):
+    ndim = Y.ndim
+    if ndim == 2:
         return wpe_v6(
             Y,
             K=K,
@@ -451,7 +452,11 @@ def wpe_v8(Y, K=10, delay=3, iterations=3, neighborhood=0):
             iterations=iterations,
             neighborhood=neighborhood,
         )
-    elif Y.ndim == 3:
+    elif ndim >= 3:
+        shape = Y.shape
+        if ndim > 3:
+            Y = Y.reshape(np.prod(shape[:-2]), *shape[-2:])
+
         batch_axis = 0
         F = Y.shape[batch_axis]
         index = [slice(None)] * Y.ndim
@@ -466,7 +471,10 @@ def wpe_v8(Y, K=10, delay=3, iterations=3, neighborhood=0):
                 iterations=iterations,
                 neighborhood=neighborhood,
             ))
-        return np.stack(out, axis=batch_axis)
+        if ndim > 3:
+            return np.stack(out, axis=batch_axis).reshape(shape)
+        else:
+            return np.stack(out, axis=batch_axis)
     else:
         raise NotImplementedError('Input shape is to be (F, D, T) or (D, T).')
 
