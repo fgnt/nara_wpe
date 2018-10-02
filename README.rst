@@ -36,11 +36,11 @@ Clone the repository. Then install it as follows if you want to make changes to 
   cd nara_wpe
   pip install --editable .
 
-Alternatively, if you just want to run it, install it directly with Pip from Github:
+Alternatively, if you just want to run it, install it directly with Pip:
 
 .. code-block:: bash
 
-  pip install git+https://github.com/fgnt/nara_wpe.git
+  pip install nara_wpe
 
 Check the example notebook for further details.
 If you download the example notebook, you can listen to the input audio examples and to the dereverberated output too.
