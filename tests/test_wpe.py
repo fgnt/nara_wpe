@@ -75,7 +75,7 @@ class TestWPE(unittest.TestCase):
             self.Y, inverse_power, self.K, self.delay
         )
 
-        s = [Ellipsis, slice(self.delay + self.K - 1, None)]
+        s = (Ellipsis, slice(self.delay + self.K - 1, None))
         Y_tilde = wpe.build_y_tilde(self.Y, self.K, self.delay)
         R_actual, r_actual = wpe.get_correlations_v6(
             self.Y[s], Y_tilde[s], inverse_power[s]

@@ -5,12 +5,18 @@ import click
 import numpy as np
 
 
+def get_working_shape(shape):
+    "Flattens all but the last two dimension."
+    product = functools.reduce(operator.mul, [1] + list(shape[:-2]))
+    return [product] + list(shape[-2:])
+
+
 def segment_axis(
         x,
         length,
         shift,
         axis=-1,
-        end:  "in ['pad', 'cut', None]"='cut',
+        end='cut',  # in ['pad', 'cut', None]
         pad_mode='constant',
         pad_value=0,
 ):
@@ -113,13 +119,15 @@ def segment_axis(
 def _lstsq(A, B):
     assert A.shape == B.shape, (A.shape, B.shape)
     shape = A.shape
-    working_shape = [functools.reduce(operator.mul, [1, *shape[:-2]]), *shape[-2:]]
+
+    working_shape = get_working_shape(shape)
+
     A = A.reshape(working_shape)
     B = B.reshape(working_shape)
 
     C = np.zeros_like(A)
     for i in range(working_shape[0]):
-        C[i], *_ = np.linalg.lstsq(A[i], B[i])
+        C[i] = np.linalg.lstsq(A[i], B[i])[0]
     return C.reshape(*shape)
 
 
@@ -201,10 +209,8 @@ def _stable_solve(A, B):
     except np.linalg.linalg.LinAlgError:
         shape_A, shape_B = A.shape, B.shape
         assert shape_A[:-2] == shape_A[:-2]
-        working_shape_A = [functools.reduce(operator.mul, [1, *shape_A[:-2]]),
-                           *shape_A[-2:]]
-        working_shape_B = [functools.reduce(operator.mul, [1, *shape_B[:-2]]),
-                           *shape_B[-2:]]
+        working_shape_A = get_working_shape(shape_A)
+        working_shape_B = get_working_shape(shape_B)
         A = A.reshape(working_shape_A)
         B = B.reshape(working_shape_B)
 
@@ -214,7 +220,7 @@ def _stable_solve(A, B):
             try:
                 C[i] = np.linalg.solve(A[i], B[i])
             except np.linalg.linalg.LinAlgError:
-                C[i], *_ = np.linalg.lstsq(A[i], B[i])
+                C[i] = np.linalg.lstsq(A[i], B[i])[0]
         return C.reshape(*shape_B)
 
 
@@ -263,7 +269,9 @@ def build_y_tilde(Y, taps, delay):
     The first columns are zero because of the delay.
 
     """
-    *S, D, T = Y.shape
+    S = Y.shape[:-2]
+    D = Y.shape[-2]
+    T = Y.shape[-1]
 
     def pad(x, axis=-1, pad_width=taps + delay - 1):
         npad = np.zeros([x.ndim, 2], dtype=np.int)
@@ -294,7 +302,7 @@ def build_y_tilde(Y, taps, delay):
     Y_ = np.flip(Y_, axis=-2)
     if delay > 0:
         Y_ = Y_[..., :-delay, :, :]
-    Y_ = np.reshape(Y_, [*S, T, taps * D])
+    Y_ = np.reshape(Y_, list(S) + [T, taps * D])
     Y_ = np.moveaxis(Y_, -2, -1)
 
     return Y_
@@ -331,7 +339,7 @@ def wpe_v0(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
     if statistics_mode == 'full':
         s = Ellipsis
     elif statistics_mode == 'valid':
-        s = [Ellipsis, slice(delay + taps - 1, None)]
+        s = (Ellipsis, slice(delay + taps - 1, None))
     else:
         raise ValueError(statistics_mode)
 
@@ -367,7 +375,7 @@ def wpe_v6(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
     if statistics_mode == 'full':
         s = Ellipsis
     elif statistics_mode == 'valid':
-        s = [Ellipsis, slice(delay + taps - 1, None)]
+        s = (Ellipsis, slice(delay + taps - 1, None))
     else:
         raise ValueError(statistics_mode)
 
@@ -379,7 +387,7 @@ def wpe_v6(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
         R = np.matmul(Y_tilde_inverse_power[s], hermite(Y_tilde[s]))
         P = np.matmul(Y_tilde_inverse_power[s], hermite(Y[s]))
         G = _stable_solve(R, P)
-        X = Y - (hermite(G) @ Y_tilde)
+        X = Y - np.dot(hermite(G), Y_tilde)
 
     return X
 
@@ -394,7 +402,7 @@ def wpe_v7(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
     if statistics_mode == 'full':
         s = Ellipsis
     elif statistics_mode == 'valid':
-        s = [Ellipsis, slice(delay + taps - 1, None)]
+        s = (Ellipsis, slice(delay + taps - 1, None))
     else:
         raise ValueError(statistics_mode)
 
@@ -455,7 +463,7 @@ def online_wpe_step(
     ):
     """
     One step of online dereverberation.
-    
+
     Args:
         input_buffer: Buffer of shape (taps+delay+1, F, D)
         power_estimate: Estimate for the current PSD
@@ -470,7 +478,7 @@ def online_wpe_step(
         Updated estimate of R^-1
         Updated estimate of the filter taps
     """
-    
+
     F, D = input_buffer.shape[-2:]
     window = input_buffer[:-delay - 1][::-1]
     window = window.transpose(1, 2, 0).reshape((F, taps * D))
@@ -479,10 +487,10 @@ def online_wpe_step(
         np.einsum('fid,fi->fd', np.conjugate(filter_taps), window)
     )
     nominator = np.einsum('fij,fj->fi', inv_cov, window)
-    denominator = (alpha * power_estimate).astype(window.dtype) 
+    denominator = (alpha * power_estimate).astype(window.dtype)
     denominator += np.einsum('fi,fi->f', np.conjugate(window), nominator)
     kalman_gain = nominator / denominator[:, None]
-    
+
     inv_cov_k = inv_cov - np.einsum(
         'fj,fjm,fi->fim',
         np.conjugate(window),
@@ -491,17 +499,20 @@ def online_wpe_step(
         optimize='optimal'
     )
     inv_cov_k /= alpha
-    
+
     filter_taps_k = (
         filter_taps +
         np.einsum('fi,fm->fim', kalman_gain, np.conjugate(pred))
     )
-    
+
     return pred, inv_cov_k, filter_taps_k
 
 
-def abs_square(x: np.ndarray):
+def abs_square(x):
     """
+
+    Params:
+        x: np.ndarray
 
     https://github.com/numpy/numpy/issues/9679
 
@@ -944,7 +955,10 @@ def perform_filter_operation(Y, filter_matrix_conj, taps, delay):
             if t - tau >= 0:
                 # assert t - tau >= 0, (t, tau)
                 assert tau - delay >= 0, (tau, delay)
-                X[:, t] -= filter_matrix_conj[tau - delay, :, :].T @ Y[:, t - tau]
+                X[:, t] -= np.dot(
+                    filter_matrix_conj[tau - delay, :, :].T,
+                    Y[:, t - tau]
+                )
     return X
 
 
@@ -1036,7 +1050,7 @@ def perform_filter_operation_v4(Y, filter_matrix_conj, taps, delay):
 
 
 def perform_filter_operation_v5(Y, Y_tilde, filter_matrix):
-    X = Y - (hermite(filter_matrix) @ Y_tilde)
+    X = Y - np.dot(hermite(filter_matrix), Y_tilde)
     return X
 
 
