@@ -417,7 +417,8 @@ def wpe_v8(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
     """
     v8 is faster than v7 and offers an optional batch mode.
     """
-    if Y.ndim == 2:
+    ndim = Y.ndim
+    if ndim == 2:
         return wpe_v6(
             Y,
             taps=taps,
