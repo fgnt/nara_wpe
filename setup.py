@@ -5,7 +5,7 @@ https://packaging.python.org/en/latest/distributing.html
 https://github.com/pypa/sampleproject
 """
 
-import setuptools as st 
+import setuptools as st
 from codecs import open
 from os import path
 import numpy
@@ -69,6 +69,7 @@ st.setup(
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=[
+        'pathlib2;python_version<"3.0"',
         'numpy',
         'tqdm',
         'soundfile',
