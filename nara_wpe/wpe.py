@@ -387,7 +387,7 @@ def wpe_v6(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
         R = np.matmul(Y_tilde_inverse_power[s], hermite(Y_tilde[s]))
         P = np.matmul(Y_tilde_inverse_power[s], hermite(Y[s]))
         G = _stable_solve(R, P)
-        X = Y - np.dot(hermite(G), Y_tilde)
+        X = Y - np.matmul(hermite(G), Y_tilde)
 
     return X
 
@@ -764,9 +764,9 @@ def get_correlations(Y, inverse_power, taps, delay):
     correlation_vector = np.zeros((D * D * taps, 1), dtype=Y.dtype)
     for t in range(delay + taps - 1, T):
         Psi = get_Psi(Y, t - delay, taps)
-        correlation_matrix += inverse_power[t] * np.dot(Psi.conj(), Psi.T)
+        correlation_matrix += inverse_power[t] * np.matmul(Psi.conj(), Psi.T)
         correlation_vector \
-            += inverse_power[t] * np.dot(Psi.conj(), Y[:, t])[:, None]
+            += inverse_power[t] * np.matmul(Psi.conj(), Y[:, t])[:, None]
 
     return correlation_matrix, correlation_vector
 
@@ -955,7 +955,7 @@ def perform_filter_operation(Y, filter_matrix_conj, taps, delay):
             if t - tau >= 0:
                 # assert t - tau >= 0, (t, tau)
                 assert tau - delay >= 0, (tau, delay)
-                X[:, t] -= np.dot(
+                X[:, t] -= np.matmul(
                     filter_matrix_conj[tau - delay, :, :].T,
                     Y[:, t - tau]
                 )
@@ -1050,7 +1050,7 @@ def perform_filter_operation_v4(Y, filter_matrix_conj, taps, delay):
 
 
 def perform_filter_operation_v5(Y, Y_tilde, filter_matrix):
-    X = Y - np.dot(hermite(filter_matrix), Y_tilde)
+    X = Y - np.matmul(hermite(filter_matrix), Y_tilde)
     return X
 
 
