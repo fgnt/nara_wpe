@@ -440,7 +440,7 @@ def wpe_v8(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
         for f in range(F):
             index[batch_axis] = f
             out.append(wpe_v6(
-                Y=Y[index],
+                Y=Y[tuple(index)],
                 taps=taps,
                 delay=delay,
                 iterations=iterations,
