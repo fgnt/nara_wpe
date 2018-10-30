@@ -10,16 +10,41 @@ from pymatbridge import Matlab
 from nara_wpe import project_root
 
 
+def ntt_wrapper(
+        y,
+        taps=10,
+        delay=3,
+        iterations=3,
+        psd_context=0,
+        sampling_rate=16000,
+        path_to_package=project_root / 'cache' / 'wpe_v1.33'
+):
+    wpe = NTTWrapper(path_to_package)
+    return wpe(
+        y=y,
+        taps=taps,
+        delay=delay,
+        iterations=iterations,
+        psd_context=psd_context,
+        sampling_rate=sampling_rate
+    )
+
+
 class NTTWrapper:
-    def __init__(self, path_to_pkg, output_dir):
+    """
+    The WPE package has to be downloaded from
+    http://www.kecl.ntt.co.jp/icl/signal/wpe/download.html. It is recommended
+    to store it in the cache directory of Nara-WPE.
+    """
+    def __init__(self, path_to_pkg):
         self.path_to_pkg = Path(path_to_pkg)
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(exist_ok=True)
 
         if not self.path_to_pkg.exists():
             raise OSError(
                 'NTT WPE package does not exist. It has to be downloaded'
-                'from http://www.kecl.ntt.co.jp/icl/signal/wpe/download.html')
+                'from http://www.kecl.ntt.co.jp/icl/signal/wpe/download.html'
+                'and stored in the cache directory of Nara-WPE, preferably.'
+            )
 
     @cached_property
     def process(self):
@@ -47,33 +72,33 @@ class NTTWrapper:
                         line = "channel_setup = [" + str(taps) + "; ..." + "\n"
                 elif 'ssd_conf' in line:
                     if not str(iterations) in line:
-                        line = "ssd_conf = struct('max_iter'," + str(iterations) + ", ...\n"
+                        line = "ssd_conf = struct('max_iter',"\
+                               + str(iterations) + ", ...\n"
                 lines.append(line)
         return lines
 
-    def __call__(self, files, delay, iterations, taps, psd_context):
+    def __call__(
+            self,
+            y,
+            taps=10,
+            delay=3,
+            iterations=3,
+            psd_context=0,
+            sampling_rate=16000
+    ):
         """
 
         Args:
-            files: List or single String of input data
+            y: observation (channels. samples)
             delay:
             iterations:
             taps:
             psd_context:
 
-        Returns:
+        Returns: dereverberated observation (channels, samples)
 
         """
-        # load audio
-        if len(files) > 1:
-            signal_list = [
-                sf.read(str(file))[0]
-                for file in files
-            ]
-            y = np.stack(signal_list, axis=0).transpose(1, 0)
-            sampling_rate = sf.read(str(files[0]))[1]
-        else:
-            y, sampling_rate = sf.read(files)
+        y = y.transpose(1, 0)
         channels = y.shape[1]
         cfg_lines = self.cfg(channels, sampling_rate, iterations, taps)
 
@@ -91,29 +116,14 @@ class NTTWrapper:
             self.process.run_code("addpath('" + str(cfg_file.name) + "');")
             self.process.run_code("addpath('" + str(self.path_to_pkg) + "');")
 
-            print("Dereverbing ...")
             msg = self.process.run_code("y = wpe(y, cfg);")
-
             assert msg['success'] is True, \
                 f'WPE has failed. {msg["content"]["stdout"]}'
 
         y = self.process.get_variable("y")
-        y = y.transpose(1, 0)
 
-        # write output
-        if len(files) > 1:
-            for i, file in enumerate(files):
-                sf.write(
-                    str(self.output_dir / Path(file).name),
-                    y[i],
-                    samplerate=sampling_rate
-                )
-        else:
-            sf.write(
-                str(self.output_dir / Path(files).name),
-                y,
-                samplerate=sampling_rate
-            )
+        return y.transpose(1, 0)
+
 
 @click.command()
 @click.argument(
@@ -145,14 +155,39 @@ class NTTWrapper:
     default=0,
     help='Left and right hand context'
 )
-def main(path_to_pkg, files, output_dir, delay,
-         iterations, taps, psd_context):
+def main(path_to_pkg, files, output_dir, taps=10, delay=3,
+         iterations=5, psd_context=0):
     """
     A small command line wrapper around the NTT-WPE matlab file.
     http://www.kecl.ntt.co.jp/icl/signal/wpe/
     """
-    wrapper = NTTWrapper(path_to_pkg, output_dir)
-    wrapper(files, delay, iterations, taps, psd_context)
+
+    if len(files) > 1:
+        signal_list = [
+            sf.read(str(file))[0]
+            for file in files
+        ]
+        y = np.stack(signal_list, axis=0)
+        sampling_rate = sf.read(str(files[0]))[1]
+    else:
+        y, sampling_rate = sf.read(files)
+
+    wrapper = NTTWrapper(path_to_pkg)
+    x = wrapper(y, delay, iterations, taps, psd_context, sampling_rate)
+
+    if len(files) > 1:
+        for i, file in enumerate(files):
+            sf.write(
+                str(Path(output_dir) / Path(file).name),
+                x[i],
+                samplerate=sampling_rate
+            )
+    else:
+        sf.write(
+            str(Path(output_dir) / Path(files).name),
+            x,
+            samplerate=sampling_rate
+        )
 
 
 if __name__ == '__main__':
