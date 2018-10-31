@@ -5,9 +5,7 @@ from pathlib import Path
 import click
 import numpy as np
 import soundfile as sf
-from tqdm import tqdm
 
-from nara_wpe import project_root
 from nara_wpe.utils import stft
 from nara_wpe.utils import istft
 from nara_wpe.utils import segment_axis_v2 as segment_axis
@@ -518,8 +516,10 @@ def online_wpe_step(
 
 class OnlineWPE:
     """
-    A frame online approach which carries the covariance matrices
+    A recursive approach which carries the covariance matrices
     as well as the filter taps and the power estimate.
+    The online step is a special case for online framewise
+    dereverberation.
 
     Args:
         taps (int): Number of filter taps
@@ -538,19 +538,29 @@ class OnlineWPE:
         self.delay = delay
 
         self.inv_cov = np.stack(
-            [np.identity(channel * taps) for a in range(frequency_bins)])
+            [np.eye(channel * taps) for _ in range(frequency_bins)]
+        )
         self.filter_taps = np.zeros((frequency_bins, channel * taps, channel))
         self.power = np.ones(frequency_bins) * power_estimate
         self.buffer = np.zeros(
             (self.taps + self.delay + 1, frequency_bins, channel),
-            np.complex128)
+            dtype=np.complex128
+        )
 
     def step(self, frame):
-        assert self.buffer.shape[-2:] == frame.shape[-2:], "Set channel and frequency bins."
+        """
 
-        F, channel = frame.shape[-2:]
+        Args:
+            frame: (F, D)
+        Returns:
+            prediction: (F, D)
+        """
+        assert self.buffer.shape[-2:] == frame.shape[-2:],\
+            "Set channel and frequency bins."
+
+        F, D = frame.shape[-2:]
         window = self.buffer[:-self.delay - 1]
-        window = window.transpose(1, 2, 0).reshape((F, self.taps * channel))
+        window = window.transpose(1, 2, 0).reshape((F, self.taps * D))
 
         prediction = (
             frame -
@@ -558,7 +568,7 @@ class OnlineWPE:
         )
 
         self._update_buffer(frame)
-        self._update_power_buffer()
+        self._update_power()
         self._update_kalman_gain(window)
         self._update_inv_cov(window)
         self._update_taps(prediction)
@@ -602,6 +612,41 @@ class OnlineWPE:
         self.buffer = np.roll(self.buffer, -1, axis=0)
         assert frame.shape[-2:] == self.buffer.shape[-2:]
         self.buffer[-1] = frame
+
+
+def recursive_wpe(
+        Y,
+        power_estimate,
+        taps=10,
+        delay=3,
+        alpha=0.9999,
+):
+    """Applies WPE in a framewise recursive fashion.
+
+        Args:
+            Y : Observed signal of shape (F, D, T)
+            power_estimate: Estimate for the clean signal PSD of shape (F, T)
+            alpha (float): Smoothing factor for the recursion
+            taps (int, optional): Number of filter taps.
+            delay (int, optional): Delay
+        Returns:
+            Enhanced signal (F, D, T)
+        """
+    F, D, T = Y.shape[:]
+    wpe = OnlineWPE(
+        taps,
+        delay,
+        alpha,
+        power_estimate,
+        channel=D,
+        frequency_bins=F
+    )
+    Y = Y.transpose(2, 0, 1)
+    prediction = []
+    for frame in Y:
+        prediction.append(wpe.step(frame))
+
+    return np.stack(prediction).transpose(1, 2, 0)
 
 
 def abs_square(x):
