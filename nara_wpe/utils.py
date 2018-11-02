@@ -5,11 +5,235 @@ import numpy as np
 from math import ceil
 import scipy
 import functools
+import operator
 
 from scipy import signal
 from numpy.fft import rfft, irfft
 
 import string
+
+
+def hermite(x):
+    return x.swapaxes(-2, -1).conj()
+
+
+def stable_solve(A, B):
+    """
+    Use np.linalg.solve with fallback to np.linalg.lstsq.
+    Equal to np.linalg.lstsq but faster.
+
+    Note: limited currently by A.shape == B.shape
+
+    This function try's np.linalg.solve with independent dimensions,
+    when this is not working the function fall back to np.linalg.solve
+    for each matrix. If one matrix does not work it fall back to
+    np.linalg.lstsq.
+
+    The reason for not using np.linalg.lstsq directly is the execution time.
+    Examples:
+    A and B have the shape (500, 6, 6), than a loop over lstsq takes
+    108 ms and this function 28 ms for the case that one matrix is singular
+    else 1 ms.
+
+    >>> def normal(shape):
+    ...     return np.random.normal(size=shape) + 1j * np.random.normal(size=shape)
+
+    >>> A = normal((6, 6))
+    >>> B = normal((6, 6))
+    >>> C1 = np.linalg.solve(A, B)
+    >>> C2, *_ = np.linalg.lstsq(A, B)
+    >>> C3 = stable_solve(A, B)
+    >>> C4 = lstsq(A, B)
+    >>> np.testing.assert_allclose(C1, C2)
+    >>> np.testing.assert_allclose(C1, C3)
+    >>> np.testing.assert_allclose(C1, C4)
+
+    >>> A = np.zeros((6, 6), dtype=np.complex128)
+    >>> B = np.zeros((6, 6), dtype=np.complex128)
+    >>> C1 = np.linalg.solve(A, B)
+    Traceback (most recent call last):
+    ...
+    numpy.linalg.linalg.LinAlgError: Singular matrix
+    >>> C2, *_ = np.linalg.lstsq(A, B)
+    >>> C3 = stable_solve(A, B)
+    >>> C4 = lstsq(A, B)
+    >>> np.testing.assert_allclose(C2, C3)
+    >>> np.testing.assert_allclose(C2, C4)
+
+    >>> A = normal((3, 6, 6))
+    >>> B = normal((3, 6, 6))
+    >>> C1 = np.linalg.solve(A, B)
+    >>> C2, *_ = np.linalg.lstsq(A, B)
+    Traceback (most recent call last):
+    ...
+    numpy.linalg.linalg.LinAlgError: 3-dimensional array given. Array must be two-dimensional
+    >>> C3 = stable_solve(A, B)
+    >>> C4 = lstsq(A, B)
+    >>> np.testing.assert_allclose(C1, C3)
+    >>> np.testing.assert_allclose(C1, C4)
+
+
+    >>> A[2, 3, :] = 0
+    >>> C1 = np.linalg.solve(A, B)
+    Traceback (most recent call last):
+    ...
+    numpy.linalg.linalg.LinAlgError: Singular matrix
+    >>> C2, *_ = np.linalg.lstsq(A, B)
+    Traceback (most recent call last):
+    ...
+    numpy.linalg.linalg.LinAlgError: 3-dimensional array given. Array must be two-dimensional
+    >>> C3 = stable_solve(A, B)
+    >>> C4 = lstsq(A, B)
+    >>> np.testing.assert_allclose(C3, C4)
+
+
+    """
+    assert A.shape[:-2] == B.shape[:-2], (A.shape, B.shape)
+    assert A.shape[-1] == B.shape[-2], (A.shape, B.shape)
+    try:
+        return np.linalg.solve(A, B)
+    except np.linalg.linalg.LinAlgError:
+        shape_A, shape_B = A.shape, B.shape
+        assert shape_A[:-2] == shape_A[:-2]
+        working_shape_A = get_working_shape(shape_A)
+        working_shape_B = get_working_shape(shape_B)
+        A = A.reshape(working_shape_A)
+        B = B.reshape(working_shape_B)
+
+        C = np.zeros_like(B)
+        for i in range(working_shape_A[0]):
+            # lstsq is much slower, use it only when necessary
+            try:
+                C[i] = np.linalg.solve(A[i], B[i])
+            except np.linalg.linalg.LinAlgError:
+                C[i] = np.linalg.lstsq(A[i], B[i])[0]
+        return C.reshape(*shape_B)
+
+
+def get_working_shape(shape):
+    "Flattens all but the last two dimension."
+    product = functools.reduce(operator.mul, [1] + list(shape[:-2]))
+    return [product] + list(shape[-2:])
+
+
+def lstsq(A, B):
+    assert A.shape == B.shape, (A.shape, B.shape)
+    shape = A.shape
+
+    working_shape = get_working_shape(shape)
+
+    A = A.reshape(working_shape)
+    B = B.reshape(working_shape)
+
+    C = np.zeros_like(A)
+    for i in range(working_shape[0]):
+        C[i] = np.linalg.lstsq(A[i], B[i])[0]
+    return C.reshape(*shape)
+
+
+def segment_axis(
+        x,
+        length,
+        shift,
+        axis=-1,
+        end='cut',  # in ['pad', 'cut', None]
+        pad_mode='constant',
+        pad_value=0,
+):
+
+    """Generate a new array that chops the given array along the given axis
+     into overlapping frames.
+
+    Args:
+        x: The array to segment
+        length: The length of each frame
+        shift: The number of array elements by which to step forward
+        axis: The axis to operate on; if None, act on the flattened array
+        end: What to do with the last frame, if the array is not evenly
+                divisible into pieces. Options are:
+                * 'cut'   Simply discard the extra values
+                * None    No end treatment. Only works when fits perfectly.
+                * 'pad'   Pad with a constant value
+        pad_mode:
+        pad_value: The value to use for end='pad'
+
+    Examples:
+        >>> segment_axis(np.arange(10), 4, 2)
+        array([[0, 1, 2, 3],
+               [2, 3, 4, 5],
+               [4, 5, 6, 7],
+               [6, 7, 8, 9]])
+        >>> segment_axis(np.arange(5).reshape(5), 4, 1, axis=0)
+        array([[0, 1, 2, 3],
+               [1, 2, 3, 4]])
+        >>> segment_axis(np.arange(10).reshape(2, 5), 4, 1, axis=-1)
+        array([[[0, 1, 2, 3],
+                [1, 2, 3, 4]],
+        <BLANKLINE>
+               [[5, 6, 7, 8],
+                [6, 7, 8, 9]]])
+        >>> segment_axis(np.arange(10).reshape(5, 2).T, 4, 1, axis=1)
+        array([[[0, 2, 4, 6],
+                [2, 4, 6, 8]],
+        <BLANKLINE>
+               [[1, 3, 5, 7],
+                [3, 5, 7, 9]]])
+        >>> a = np.arange(5).reshape(5)
+        >>> b = segment_axis(a, 4, 2, axis=0)
+        >>> a += 1  # a and b point to the same memory
+        >>> b
+        array([[1, 2, 3, 4]])
+
+    """
+
+    if x.__class__.__module__ == 'cupy.core.core':
+        import cupy
+        xp = cupy
+    else:
+        xp = np
+
+    axis = axis % x.ndim
+    elements = x.shape[axis]
+
+    if shift <= 0:
+        raise ValueError('Can not shift forward by less than 1 element.')
+
+    # Pad
+    if end == 'pad':
+        npad = np.zeros([x.ndim, 2], dtype=np.int)
+        pad_fn = functools.partial(
+            xp.pad, pad_width=npad, mode=pad_mode, constant_values=pad_value
+        )
+        if elements < length:
+            npad[axis, 1] = length - elements
+            x = pad_fn(x)
+        elif not shift == 1 and not (elements + shift - length) % shift == 0:
+            npad[axis, 1] = shift - ((elements + shift - length) % shift)
+            x = pad_fn(x)
+    elif end is None:
+        assert (elements + shift - length) % shift == 0, \
+            '{} = elements({}) + shift({}) - length({})) % shift({})' \
+            ''.format((elements + shift - length) % shift,
+                      elements, shift, length, shift)
+    elif end == 'cut':
+        pass
+    else:
+        raise ValueError(end)
+
+    shape = list(x.shape)
+    del shape[axis]
+    shape.insert(axis, (elements + shift - length) // shift)
+    shape.insert(axis + 1, length)
+
+    strides = list(x.strides)
+    strides.insert(axis, shift * strides[axis])
+
+    if xp == np:
+        return np.lib.stride_tricks.as_strided(x, strides=strides, shape=shape)
+    else:
+        x = x.view()
+        x._set_shape_and_strides(strides=strides, shape=shape)
+        return x
 
 
 def segment_axis_v2(
@@ -103,7 +327,6 @@ def segment_axis_v2(
     strides.insert(axis, shift * strides[axis])
 
     return np.lib.stride_tricks.as_strided(x, strides=strides, shape=shape)
-
 
 
 # http://stackoverflow.com/a/3153267

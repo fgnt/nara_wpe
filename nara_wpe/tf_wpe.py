@@ -473,7 +473,7 @@ def batched_wpe_step(
 
 def block_wpe_step(
         Y, inverse_power, taps=10, delay=3, mode='inv',
-        block_length_in_seconds=2., forgetting_factor=0.7,
+        block_length_in_seconds=2., alpha=0.7,
         fft_shift=256, sampling_rate=16000):
     """Applies wpe in a block-wise fashion.
 
@@ -487,7 +487,7 @@ def block_wpe_step(
             "solve" solves Rx=r for x
         block_length_in_seconds (float, optional): Length of each block in
             seconds
-        forgetting_factor (float, optional): Forgetting factor for the signal
+        alpha (float, optional): Forgetting factor for the signal
             statistics between the blocks
         fft_shift (int, optional): Shift used for the STFT.
         sampling_rate (int, optional): Sampling rate of the observed signal.
@@ -529,10 +529,10 @@ def block_wpe_step(
                     taps, delay
                 )
                 return (
-                    (1. - forgetting_factor) * correlation_matrix_tm1
-                    + forgetting_factor * correlation_matrix,
-                    (1. - forgetting_factor) * correlation_vector_tm1
-                    + forgetting_factor * correlation_vector
+                    (1. - alpha) * correlation_matrix_tm1
+                    + alpha * correlation_matrix,
+                    (1. - alpha) * correlation_vector_tm1
+                    + alpha * correlation_vector
                 )
 
             correlation_matrix, correlation_vector = tf.case(
@@ -578,7 +578,7 @@ def block_wpe_step(
 
 def batched_block_wpe_step(
         Y, inverse_power, num_frames, taps=10, delay=3, mode='inv',
-        block_length_in_seconds=2., forgetting_factor=0.7,
+        block_length_in_seconds=2., alpha=0.7,
         fft_shift=256, sampling_rate=16000):
     """Batched single WPE step. More suited for backpropagation.
 
@@ -593,7 +593,7 @@ def batched_block_wpe_step(
             "solve" solves Rx=r for x
         block_length_in_seconds (float, optional): Length of each block in
             seconds
-        forgetting_factor (float, optional): Forgetting factor for the signal
+        alpha (float, optional): Forgetting factor for the signal
             statistics between the blocks
         fft_shift (int, optional): Shift used for the STFT.
         sampling_rate (int, optional): Sampling rate of the observed signal.
@@ -605,7 +605,7 @@ def batched_block_wpe_step(
         _Y, _inverse_power = signals
         out = block_wpe_step(
             _Y, _inverse_power, taps, delay,
-            mode, block_length_in_seconds, forgetting_factor,
+            mode, block_length_in_seconds, alpha,
             fft_shift, sampling_rate)
         return out
 
