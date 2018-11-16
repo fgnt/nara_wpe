@@ -10,6 +10,7 @@ install:
   - pip install -e .
   - pip install tensorflow
   - pip install coverage
+  - pip install jupyter
 
 script:
   - pytest tests/
