@@ -76,10 +76,7 @@ st.setup(
         'bottleneck',
         'click',
         'scipy',
-        'cached-property',
-        'zmq',
-        'pyzmq',
-        'pymatbridge'
+        'cached-property'
     ],
 
     # List additional groups of dependencies here (e.g. development
