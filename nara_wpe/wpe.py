@@ -1,4 +1,8 @@
-from pathlib import Path
+try:
+    from pathlib import Path
+except ImportError:
+    # Python 2.7
+    from pathlib2 import Path
 
 import click
 import numpy as np
@@ -275,7 +279,7 @@ class OnlineWPE:
         assert self.buffer.shape[-2:] == block.shape[-2:],\
             "Set channel and frequency bins."
         assert self.buffer.shape[0] == block.shape[0],\
-            f"Check block length. ({self.taps}+{self.delay}+1, F, D)"
+            "Check block length. ({}+{}+1, F, D)".format(self.taps, self.delay)
 
         prediction, window = self._get_prediction(block, block_shift)
 

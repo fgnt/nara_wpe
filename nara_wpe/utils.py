@@ -241,7 +241,7 @@ def segment_axis_v2(
         length,
         shift,
         axis=-1,
-        end:  "in ['pad', 'cut', None]"='cut',
+        end='cut',
         pad_mode='constant',
         pad_value=0,
 ):
