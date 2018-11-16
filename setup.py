@@ -77,6 +77,7 @@ st.setup(
         'click',
         'scipy',
         'cached-property',
+        'zmq',
         'pymatbridge'
     ],
 
