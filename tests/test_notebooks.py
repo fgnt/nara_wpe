@@ -17,7 +17,7 @@ def _notebook_run(path):
     with tempfile.NamedTemporaryFile(suffix=".ipynb") as fout:
         args = ["jupyter", "nbconvert", "--to", "notebook", "--execute",
                 "--ExecutePreprocessor.timeout=60",
-                "--output", fout.name, path]
+                "--output", fout.name, str(path)]
         subprocess.check_call(args)
 
         fout.seek(0)
