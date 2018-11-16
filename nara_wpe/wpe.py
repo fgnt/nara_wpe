@@ -235,7 +235,7 @@ class OnlineWPE:
         self.filter_taps = np.zeros((frequency_bins, channel * taps, channel))
         if power_estimate:
             assert frequency_bins == power_estimate.shape[0], \
-                f"({frequency_bins},) =! {power_estimate.shape}"
+                "({},) =! {}".format(frequency_bins, power_estimate.shape)
             self.power = np.ones(frequency_bins) * power_estimate
         self.buffer = np.zeros(
             (self.taps + self.delay + 1, frequency_bins, channel),
