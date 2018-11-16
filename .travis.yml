@@ -11,6 +11,7 @@ install:
   - pip install tensorflow
   - pip install coverage
   - pip install jupyter
+  - pip install matplotlib
 
 script:
   - pytest tests/
