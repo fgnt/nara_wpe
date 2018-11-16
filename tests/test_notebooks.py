@@ -53,6 +53,6 @@ class TestNotebooks(unittest.TestCase):
         nb, errors = _notebook_run(self.root / 'WPE_Tensorflow_online.ipynb')
         assert errors == []
 
-    def test_NTT_wrapper(self):
-        nb, errors = _notebook_run(self.root / 'NTT_wrapper_offline.ipynb')
-        assert errors == []
+    # def test_NTT_wrapper(self):
+    #     nb, errors = _notebook_run(self.root / 'NTT_wrapper_offline.ipynb')
+    #     assert errors == []
