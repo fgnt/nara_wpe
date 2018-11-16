@@ -12,7 +12,7 @@ def _notebook_run(path):
     """Execute a notebook via nbconvert and collect output.
        :returns (parsed nb object, execution errors)
     """
-    dirname, __ = os.path.split(path)
+    dirname = os.path.dirname(str(path))
     os.chdir(dirname)
     with tempfile.NamedTemporaryFile(suffix=".ipynb") as fout:
         args = ["jupyter", "nbconvert", "--to", "notebook", "--execute",
