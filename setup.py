@@ -75,7 +75,8 @@ st.setup(
         'soundfile',
         'bottleneck',
         'click',
-        'scipy'
+        'scipy',
+        'cached-property'
     ],
 
     # List additional groups of dependencies here (e.g. development
@@ -84,7 +85,7 @@ st.setup(
     # $ pip install -e .[dev,test]
     extras_require={
         'dev': ['check-manifest'],
-        'test': ['coverage', 'jupyter'],
+        'test': ['coverage', 'jupyter', 'matplotlib'],
     },
 
     # If there are data files included in your packages that need to be

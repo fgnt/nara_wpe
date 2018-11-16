@@ -233,7 +233,7 @@ class OnlineWPE:
             [np.eye(channel * taps) for _ in range(frequency_bins)]
         )
         self.filter_taps = np.zeros((frequency_bins, channel * taps, channel))
-        if power_estimate:
+        if power_estimate is not None:
             assert frequency_bins == power_estimate.shape[0], \
                 "({},) =! {}".format(frequency_bins, power_estimate.shape)
             self.power = np.ones(frequency_bins) * power_estimate
@@ -346,7 +346,6 @@ class OnlineWPE:
 
 def recursive_wpe(
         Y,
-        power_estimate,
         taps=10,
         delay=3,
         alpha=0.9999,
@@ -367,7 +366,6 @@ def recursive_wpe(
         taps,
         delay,
         alpha,
-        power_estimate,
         channel=D,
         frequency_bins=F
     )
