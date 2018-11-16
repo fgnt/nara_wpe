@@ -19,38 +19,12 @@ class TestWPE(unittest.TestCase):
         self.Y = np.random.normal(size=(self.D, self.T)) \
             + 1j * np.random.normal(size=(self.D, self.T))
 
-    def test_correlations_v1_vs_v2_toy_example(self):
-        K = 3
-        delay = 1
-        Y = np.asarray(
-            [
-                [11, 12, 13, 14],
-                [41, 22, 23, 24]
-            ], dtype=np.float32
-        )
-        inverse_power = wpe.get_power_inverse(Y)
-        R_desired, r_desired = wpe.get_correlations(Y, inverse_power, K, delay)
-        R_actual, r_actual = wpe.get_correlations_v2(Y, inverse_power, K, delay)
-        tc.assert_allclose(R_actual, R_desired)
-        tc.assert_allclose(r_actual, r_desired)
-
-    def test_correlations_v1_vs_v2(self):
-        inverse_power = wpe.get_power_inverse(self.Y)
-        R_desired, r_desired = wpe.get_correlations(
-            self.Y, inverse_power, self.K, self.delay
-        )
-        R_actual, r_actual = wpe.get_correlations_v2(
-            self.Y, inverse_power, self.K, self.delay
-        )
-        tc.assert_allclose(R_actual, R_desired)
-        tc.assert_allclose(r_actual, r_desired)
-
     @retry(5)
-    def test_filter_operation_v1_vs_v4(self):
+    def test_filter_operation_v0_vs_v4(self):
         filter_matrix_conj = np.random.normal(size=(self.K, self.D, self.D)) \
             + 1j * np.random.normal(size=(self.K, self.D, self.D))
 
-        desired = wpe.perform_filter_operation(
+        desired = wpe.perform_filter_operation_v0(
             self.Y, filter_matrix_conj, self.K, self.delay
         )
         actual = wpe.perform_filter_operation_v4(
@@ -69,23 +43,6 @@ class TestWPE(unittest.TestCase):
         tc.assert_allclose(R_actual, R_desired)
         tc.assert_allclose(r_actual, r_desired)
 
-    def test_correlations_narrow_v1_vs_v6(self):
-        inverse_power = wpe.get_power_inverse(self.Y)
-        R_desired, r_desired = wpe.get_correlations_narrow(
-            self.Y, inverse_power, self.K, self.delay
-        )
-
-        s = (Ellipsis, slice(self.delay + self.K - 1, None))
-        Y_tilde = wpe.build_y_tilde(self.Y, self.K, self.delay)
-        R_actual, r_actual = wpe.get_correlations_v6(
-            self.Y[s], Y_tilde[s], inverse_power[s]
-        )
-        tc.assert_allclose(R_actual.conj(), R_desired)
-        tc.assert_allclose(
-            r_actual.conj(),
-            np.swapaxes(r_desired, 1, 2).reshape(-1, r_desired.shape[-1]),
-            rtol=1e-5, atol=1e-5
-        )
 
     @retry(5)
     def test_filter_matrix_conj_v1_vs_v5(self):
@@ -115,7 +72,7 @@ class TestWPE(unittest.TestCase):
 
         s = [Ellipsis, slice(self.delay + self.K - 1, None)]
         Y_tilde = wpe.build_y_tilde(self.Y, self.K, self.delay)
-        actual = wpe.get_filter_matrix_v7(
+        actual = wpe.get_filter_matrix(
             self.Y, Y_tilde=Y_tilde, inverse_power=inverse_power,
         )
         tc.assert_allclose(
@@ -123,7 +80,6 @@ class TestWPE(unittest.TestCase):
             np.swapaxes(desired, 1, 2).reshape(-1, desired.shape[-1]),
             atol=1e-6
         )
-
 
     @retry(5)
     def test_delay_zero_cancels_all(self):
@@ -144,20 +100,6 @@ class TestWPE(unittest.TestCase):
         tc.assert_allclose(actual, desired, atol=1e-6)
 
         desired = wpe.wpe_v0(self.Y, self.K, self.delay, statistics_mode='valid')
-        actual = wpe.wpe_v7(self.Y, self.K, self.delay, statistics_mode='valid')
-        tc.assert_allclose(actual, desired, atol=1e-6)
-
-        desired = wpe.wpe_v6(self.Y, self.K, self.delay, statistics_mode='valid')
-        actual = wpe.wpe_v7(self.Y, self.K, self.delay, statistics_mode='full')
-        tc.assert_raises(AssertionError, tc.assert_array_equal, desired, actual)
-
-    @retry(5)
-    def test_wpe_v6_vs_v7(self):
-        desired = wpe.wpe_v6(self.Y, self.K, self.delay, statistics_mode='full')
-        actual = wpe.wpe_v7(self.Y, self.K, self.delay, statistics_mode='full')
-        tc.assert_allclose(actual, desired, atol=1e-6)
-
-        desired = wpe.wpe_v6(self.Y, self.K, self.delay, statistics_mode='valid')
         actual = wpe.wpe_v7(self.Y, self.K, self.delay, statistics_mode='valid')
         tc.assert_allclose(actual, desired, atol=1e-6)
 
@@ -190,19 +132,9 @@ class TestWPE(unittest.TestCase):
         actual = wpe.wpe_v0(np.array([self.Y, self.Y]), self.K, self.delay, statistics_mode='full')
         tc.assert_allclose(actual, desired, atol=1e-6)
 
-        desired = wpe.wpe_v7(self.Y, self.K, self.delay, statistics_mode='full')
+        desired = wpe.wpe(self.Y, self.K, self.delay, statistics_mode='full')
         desired = [desired, desired]
-        actual = wpe.wpe_v7(np.array([self.Y, self.Y]), self.K, self.delay, statistics_mode='full')
-        tc.assert_allclose(actual, desired, atol=1e-6)
-
-        desired = wpe.wpe_v6(self.Y, self.K, self.delay, statistics_mode='full')
-        desired = [desired, desired]
-        actual = wpe.wpe_v6(np.array([self.Y, self.Y]), self.K, self.delay, statistics_mode='full')
-        tc.assert_allclose(actual, desired, atol=1e-6)
-
-        desired = wpe.wpe_v8(self.Y, self.K, self.delay, statistics_mode='full')
-        desired = [desired, desired]
-        actual = wpe.wpe_v8(np.array([self.Y, self.Y]), self.K, self.delay, statistics_mode='full')
+        actual = wpe.wpe(np.array([self.Y, self.Y]), self.K, self.delay, statistics_mode='full')
         tc.assert_allclose(actual, desired, atol=1e-6)
 
     @retry(5)
@@ -214,17 +146,13 @@ class TestWPE(unittest.TestCase):
                 [x*5, x*6],
             ])
         Y_batched_multi_freq = to_batched_multi_freq(self.Y)
+        print(Y_batched_multi_freq.shape, Y_batched_multi_freq.ndim)
 
         tc.assert_raises(NotImplementedError, wpe.wpe_v0, Y_batched_multi_freq, self.K, self.delay, statistics_mode='full')
 
         desired = wpe.wpe_v7(self.Y, self.K, self.delay, statistics_mode='full')
         desired = to_batched_multi_freq(desired)
         actual = wpe.wpe_v7(Y_batched_multi_freq, self.K, self.delay, statistics_mode='full')
-        tc.assert_allclose(actual, desired, atol=1e-6)
-
-        desired = wpe.wpe_v6(self.Y, self.K, self.delay, statistics_mode='full')
-        desired = to_batched_multi_freq(desired)
-        actual = wpe.wpe_v6(Y_batched_multi_freq, self.K, self.delay, statistics_mode='full')
         tc.assert_allclose(actual, desired, atol=1e-6)
 
         desired = wpe.wpe_v8(self.Y, self.K, self.delay, statistics_mode='full')

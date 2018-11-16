@@ -111,26 +111,47 @@ def wpe_batch(
     """
     Batch wrapper for wpe.
     """
-    assert Y.ndim == 4, 'Input shape is to be (B, F, D, T) .'
-    shape = Y.shape
-    Y = Y.reshape(np.prod(shape[:-2]), *shape[-2:])
-
-    batch_axis = 0
-    F = Y.shape[batch_axis]
-    index = [slice(None)] * Y.ndim
-
-    out = []
-    for f in range(F):
-        index[batch_axis] = f
-        out.append(wpe(
-            Y=Y[tuple(index)],
+    ndim = Y.ndim
+    if ndim == 2:
+        return wpe(
+            Y,
             taps=taps,
             delay=delay,
             iterations=iterations,
             psd_context=psd_context,
             statistics_mode=statistics_mode
-        ))
-    return np.stack(out, axis=batch_axis).reshape(shape)
+        )
+    elif ndim >= 3:
+        shape = Y.shape
+        if ndim > 3:
+            Y = Y.reshape(np.prod(shape[:-2]), *shape[-2:])
+
+        batch_axis = 0
+        F = Y.shape[batch_axis]
+        index = [slice(None)] * Y.ndim
+
+        out = []
+        for f in range(F):
+            index[batch_axis] = f
+            out.append(wpe_v6(
+                Y=Y[tuple(index)],
+                taps=taps,
+                delay=delay,
+                iterations=iterations,
+                psd_context=psd_context,
+                statistics_mode=statistics_mode
+            ))
+        if ndim > 3:
+            return np.stack(out, axis=batch_axis).reshape(shape)
+        else:
+            return np.stack(out, axis=batch_axis)
+    else:
+        raise NotImplementedError('Input shape has to be (F, D, T) or (D, T).')
+
+
+wpe_v6 = wpe
+wpe_v7 = wpe
+wpe_v8 = wpe_batch
 
 
 def online_wpe_step(
@@ -202,7 +223,7 @@ class OnlineWPE:
         Dereverberated frame of shape (F, D)
     """
 
-    def __init__(self, taps, delay, alpha, power_estimate, channel=8,
+    def __init__(self, taps, delay, alpha, power_estimate=None, channel=8,
                  frequency_bins=257):
         self.alpha = alpha
         self.taps = taps
@@ -211,10 +232,11 @@ class OnlineWPE:
         self.inv_cov = np.stack(
             [np.eye(channel * taps) for _ in range(frequency_bins)]
         )
-        assert frequency_bins == power_estimate.shape[0],\
-            f"({frequency_bins},) =! {power_estimate.shape}"
         self.filter_taps = np.zeros((frequency_bins, channel * taps, channel))
-        self.power = np.ones(frequency_bins) * power_estimate
+        if power_estimate:
+            assert frequency_bins == power_estimate.shape[0], \
+                f"({frequency_bins},) =! {power_estimate.shape}"
+            self.power = np.ones(frequency_bins) * power_estimate
         self.buffer = np.zeros(
             (self.taps + self.delay + 1, frequency_bins, channel),
             dtype=np.complex128
@@ -234,7 +256,7 @@ class OnlineWPE:
         prediction, window = self._get_prediction(frame)
 
         self._update_buffer(frame)
-        self._update_power()
+        self._update_power_block()
         self._update_kalman_gain(window)
         self._update_inv_cov(window)
         self._update_taps(prediction)
@@ -258,7 +280,7 @@ class OnlineWPE:
         prediction, window = self._get_prediction(block, block_shift)
 
         self._update_buffer(block)
-        self._update_power()
+        self._update_power_block()
         self._update_kalman_gain(window)
         self._update_inv_cov(window)
         self._update_taps(prediction)
@@ -722,7 +744,57 @@ def get_filter_matrix(Y, Y_tilde, inverse_power):
     return stable_solve(R, P)
 
 
+def get_filter_matrix_conj(correlation_matrix, correlation_vector, taps, D):
+    """
+    Args:
+        correlation_matrix: Shape (taps * D * D, taps * D * D)
+        correlation_vector: Shape (taps * D * D,)
+        taps:
+        D:
+    """
+    stacked_filter_conj = np.linalg.solve(
+        correlation_matrix, correlation_vector
+    )
+    filter_matrix_conj = np.transpose(
+        np.reshape(stacked_filter_conj, (taps, D, D)), (0, 2, 1)
+    )
+    return filter_matrix_conj
+
+
 def get_filter_matrix_conj_v0(Y, inverse_power, taps, delay):
+    D, T = Y.shape
+
+    correlation_matrix, correlation_vector = get_correlations_narrow_v5(
+        Y, inverse_power, taps, delay
+    )
+
+    correlation_vector = np.reshape(correlation_vector, (D * D * taps, 1))
+    selector = np.transpose(np.reshape(
+        np.arange(D * D * taps), (-1, taps, D)
+    ), (1, 0, 2)).flatten()
+    inv_selector = np.argsort(selector)
+    correlation_vector = correlation_vector[inv_selector, :]
+
+    # Idea is to solve matrix inversion independently for each block matrix.
+    # This should still be faster and more stable than np.linalg.inv().
+    # print(np.linalg.cond(correlation_matrix))
+    stacked_filter_conj = np.reshape(
+        np.linalg.solve(
+            correlation_matrix[None, :, :],
+            np.reshape(correlation_vector, (D, D * taps, 1))
+        ),
+        (D * D * taps, 1)
+    )
+    stacked_filter_conj = stacked_filter_conj[selector, :]
+
+    filter_matrix_conj = np.transpose(
+        np.reshape(stacked_filter_conj, (taps, D, D)),
+        (0, 2, 1)
+    )
+    return filter_matrix_conj
+
+
+def get_filter_matrix_conj_v5(Y, inverse_power, taps, delay):
     D, T = Y.shape
 
     correlation_matrix, correlation_vector = get_correlations_narrow_v5(
@@ -840,6 +912,94 @@ def perform_filter_operation_v0(Y, filter_matrix_conj, taps, delay):
             Y[:, :(T - delay - tau_minus_delay)]
         )
     return X
+
+
+def perform_filter_operation_v4(Y, filter_matrix_conj, taps, delay):
+    """
+
+    Args:
+        Y: D x T
+        filter_matrix_conj: taps x D x D
+        taps: scalar
+        delay: scalar
+
+    Returns: D x T
+
+    >>> def arange(*shape, dtype, start=0):
+    ...     _map_to_real_dtype = {np.dtype(np.complex128): np.float64}
+    ...     dtype = np.dtype(dtype)
+    ...     if dtype.kind in 'if':
+    ...         return np.arange(start, start+np.prod(shape)).reshape(shape).astype(dtype)
+    ...     elif dtype.kind == 'c':
+    ...         shape = list(shape)
+    ...         shape[-1] *= 2
+    ...         return arange(*shape, dtype=_map_to_real_dtype[dtype],
+    ...                       start=start).view(dtype)
+    ...     else:
+    ...         raise TypeError(dtype, dtype.kind)
+
+    >>> D, T, taps = 2, 5, 3
+    >>> delay = 1
+    >>> Y = arange(D, T, dtype=np.complex128)
+    >>> Y
+    array([[ 0. +1.j,  2. +3.j,  4. +5.j,  6. +7.j,  8. +9.j],
+           [10.+11.j, 12.+13.j, 14.+15.j, 16.+17.j, 18.+19.j]])
+    >>> filter_matrix_conj = arange(taps, D, D, dtype=np.complex128)
+    >>> Y
+    array([[ 0. +1.j,  2. +3.j,  4. +5.j,  6. +7.j,  8. +9.j],
+           [10.+11.j, 12.+13.j, 14.+15.j, 16.+17.j, 18.+19.j]])
+    >>> filter_matrix_conj
+    array([[[ 0. +1.j,  2. +3.j],
+            [ 4. +5.j,  6. +7.j]],
+    <BLANKLINE>
+           [[ 8. +9.j, 10.+11.j],
+            [12.+13.j, 14.+15.j]],
+    <BLANKLINE>
+           [[16.+17.j, 18.+19.j],
+            [20.+21.j, 22.+23.j]]])
+    >>> perform_filter_operation_v4(Y, filter_matrix_conj, taps, delay).shape
+    (2, 5)
+    >>> perform_filter_operation_v4(Y, filter_matrix_conj, taps, delay)
+    array([[  0.+1.000e+00j,  18.-9.100e+01j,  56.-3.790e+02j,
+            114.-9.270e+02j, 128.-1.177e+03j],
+           [ 10.+1.100e+01j,  32.-1.250e+02j,  74.-4.730e+02j,
+            136.-1.097e+03j, 150.-1.395e+03j]])
+
+    Fallback test to conventional convolution
+
+    >>> D, T, taps = 1, 5, 2
+    >>> delay = 1
+    >>> Y = arange(D, T, dtype=np.complex128)
+    >>> Y = arange(D, T, dtype=np.float64) + 1
+    >>> filter_matrix_conj = arange(taps, D, D, dtype=np.complex128)
+    >>> filter_matrix_conj = arange(taps, D, D, dtype=np.float64) + 1
+    >>> Y
+    array([[1., 2., 3., 4., 5.]])
+    >>> filter_matrix_conj
+    array([[[1.]],
+    <BLANKLINE>
+           [[2.]]])
+    >>> perform_filter_operation_v4(Y, filter_matrix_conj, taps, delay).shape
+    (1, 5)
+    >>> o, = perform_filter_operation_v4(Y, filter_matrix_conj, taps, delay)
+    >>> o
+    array([ 1.,  1., -1., -3., -5.])
+    >>> np.convolve(Y[0], [1, *(-np.squeeze(filter_matrix_conj))])
+    array([  1.,   1.,  -1.,  -3.,  -5., -13., -10.])
+
+    """
+    _, T = Y.shape
+    X = np.copy(Y)  # Can be avoided by providing X from outside.
+
+    # TODO: Second loop can be removed with using segment_axis. No large gain.
+    for tau_minus_delay in range(0, taps):
+        X[:, (delay + tau_minus_delay):] -= np.einsum(
+            'de,dt',
+            filter_matrix_conj[tau_minus_delay, :, :],
+            Y[:, :(T - delay - tau_minus_delay)]
+        )
+    return X
+
 
 
 def perform_filter_operation(Y, Y_tilde, filter_matrix):
