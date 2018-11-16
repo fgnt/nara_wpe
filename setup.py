@@ -78,6 +78,7 @@ st.setup(
         'scipy',
         'cached-property',
         'zmq',
+        'pyzmq',
         'pymatbridge'
     ],
 
