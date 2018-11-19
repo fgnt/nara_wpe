@@ -1,3 +1,4 @@
+import sys
 import os
 import subprocess
 import tempfile
@@ -32,6 +33,7 @@ def _notebook_run(path):
     return nb, errors
 
 
+@unittest.skipIf(sys.version_info < (3, 6, 0), 'Only with Python 3.6')
 class TestNotebooks(unittest.TestCase):
 
     def setUp(self):
