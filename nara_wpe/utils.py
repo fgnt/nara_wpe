@@ -207,7 +207,7 @@ def stft(
         window_length,
         fading,
         pad,
-        symmetric_window
+        symmetric_window,
 ):
     """
     ToDo: Open points:
@@ -368,7 +368,7 @@ def istft(
         window=signal.blackman,
         fading: bool=True,
         window_length: int=None,
-        symmetric_window: bool=False
+        symmetric_window: bool=False,
 ):
     """
     Calculated the inverse short time Fourier transform to exactly reconstruct
