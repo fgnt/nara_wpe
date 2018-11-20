@@ -15,9 +15,9 @@ def ntt_wrapper(
         taps=10,
         delay=3,
         iterations=3,
-        psd_context=0,
         sampling_rate=16000,
-        path_to_package=project_root / 'cache' / 'wpe_v1.33'
+        path_to_package=project_root / 'cache' / 'wpe_v1.33',
+        stft_opts=None
 ):
     wpe = NTTWrapper(path_to_package)
     return wpe(
@@ -25,8 +25,8 @@ def ntt_wrapper(
         taps=taps,
         delay=delay,
         iterations=iterations,
-        psd_context=psd_context,
-        sampling_rate=sampling_rate
+        sampling_rate=sampling_rate,
+        stft_opts=stft_opts
     )
 
 
@@ -52,7 +52,7 @@ class NTTWrapper:
         mlab.start()
         return mlab
 
-    def cfg(self, channels, sampling_rate, iterations, taps):
+    def cfg(self, channels, sampling_rate, iterations, taps, stft_opts):
         """
         Check settings and set local.m accordingly
 
@@ -74,6 +74,18 @@ class NTTWrapper:
                     if not str(iterations) in line:
                         line = "ssd_conf = struct('max_iter',"\
                                + str(iterations) + ", ...\n"
+                elif 'analym_param' in line:
+                    if not str(stft_opts['size']) in line:
+                        line = "analy_param = struct('win_size',"\
+                                + str(stft_opts['size']) + ", ..."
+                elif 'shift_size' in line:
+                    if not str(stft_opts['shift']) in line:
+                        line = "                      'shift_size',"\
+                                + str(stft_opts['shift']) + ", ..."
+                elif 'hanning' in line:
+                    if not str(stft_opts['size']) in line:
+                        line = "                     'win'       , hanning("\
+                                + str(stft_opts['size']) + "));"
                 lines.append(line)
         return lines
 
@@ -83,8 +95,8 @@ class NTTWrapper:
             taps=10,
             delay=3,
             iterations=3,
-            psd_context=0,
-            sampling_rate=16000
+            sampling_rate=16000,
+            stft_opts=None
     ):
         """
 
@@ -93,14 +105,27 @@ class NTTWrapper:
             delay:
             iterations:
             taps:
-            psd_context:
+            stft_opts: dict contains size, shift and window_length
 
         Returns: dereverberated observation (channels, samples)
 
         """
+
+        if stft_opts is None:
+            stft_opts = {
+                'size': 512,
+                'shift': 128
+            }
+        elif isinstance(stft_opts, dict):
+            pass
+        else:
+            raise TypeError
+
         y = y.transpose(1, 0)
         channels = y.shape[1]
-        cfg_lines = self.cfg(channels, sampling_rate, iterations, taps)
+        cfg_lines = self.cfg(
+            channels, sampling_rate, iterations, taps, stft_opts
+        )
 
         with tempfile.TemporaryDirectory() as tempdir:
             with (Path(tempdir) / 'local.m').open('w') as cfg_file:
@@ -132,8 +157,9 @@ class NTTWrapper:
 )
 @click.option(
     '--path_to_pkg',
-    default=str(project_root / 'cache'),
-    help='It is recommended to save the NTT-WPE package in the cache directory.'
+    default=str(project_root / 'cache' / 'wpe_v1.33'),
+    help='It is recommended to save the '
+         'NTT-WPE package in the cache directory.'
 )
 @click.option(
     '--output_dir',
@@ -150,17 +176,16 @@ class NTTWrapper:
     default=10,
     help='Number of filter taps of WPE'
 )
-@click.option(
-    '--psd_context',
-    default=0,
-    help='Left and right hand context'
-)
-def main(path_to_pkg, files, output_dir, taps=10, delay=3,
-         iterations=5, psd_context=0):
+def main(path_to_pkg, files, output_dir, taps=10, delay=3, iterations=5):
     """
     A small command line wrapper around the NTT-WPE matlab file.
     http://www.kecl.ntt.co.jp/icl/signal/wpe/
     """
+
+    stft_opts = {
+        'size': 512,
+        'shift': 128
+    }
 
     if len(files) > 1:
         signal_list = [
@@ -173,7 +198,7 @@ def main(path_to_pkg, files, output_dir, taps=10, delay=3,
         y, sampling_rate = sf.read(files)
 
     wrapper = NTTWrapper(path_to_pkg)
-    x = wrapper(y, delay, iterations, taps, psd_context, sampling_rate)
+    x = wrapper(y, delay, iterations, taps, sampling_rate, stft_opts)
 
     if len(files) > 1:
         for i, file in enumerate(files):
