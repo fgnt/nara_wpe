@@ -15,9 +15,10 @@ def ntt_wrapper(
         taps=10,
         delay=3,
         iterations=3,
-        psd_context=0,
         sampling_rate=16000,
-        path_to_package=project_root / 'cache' / 'wpe_v1.33'
+        path_to_package=project_root / 'cache' / 'wpe_v1.33',
+        stft_size=512,
+        stft_shift=128
 ):
     wpe = NTTWrapper(path_to_package)
     return wpe(
@@ -25,8 +26,9 @@ def ntt_wrapper(
         taps=taps,
         delay=delay,
         iterations=iterations,
-        psd_context=psd_context,
-        sampling_rate=sampling_rate
+        sampling_rate=sampling_rate,
+        stft_size=stft_size,
+        stft_shift=stft_shift
     )
 
 
@@ -34,7 +36,7 @@ class NTTWrapper:
     """
     The WPE package has to be downloaded from
     http://www.kecl.ntt.co.jp/icl/signal/wpe/download.html. It is recommended
-    to store it in the cache directory of Nara-WPE.
+    to store it in the cache directory of Nara-WPE
     """
     def __init__(self, path_to_pkg):
         self.path_to_pkg = Path(path_to_pkg)
@@ -52,7 +54,9 @@ class NTTWrapper:
         mlab.start()
         return mlab
 
-    def cfg(self, channels, sampling_rate, iterations, taps):
+    def cfg(self, channels, sampling_rate, iterations, taps,
+            stft_size, stft_shift
+            ):
         """
         Check settings and set local.m accordingly
 
@@ -74,6 +78,18 @@ class NTTWrapper:
                     if not str(iterations) in line:
                         line = "ssd_conf = struct('max_iter',"\
                                + str(iterations) + ", ...\n"
+                elif 'analym_param' in line:
+                    if not str(stft_size) in line:
+                        line = "analy_param = struct('win_size',"\
+                                + str(stft_size) + ", ..."
+                elif 'shift_size' in line:
+                    if not str(stft_shift) in line:
+                        line = "                      'shift_size',"\
+                                + str(stft_shift) + ", ..."
+                elif 'hanning' in line:
+                    if not str(stft_size) in line:
+                        line = "                     'win'       , hanning("\
+                                + str(stft_size) + "));"
                 lines.append(line)
         return lines
 
@@ -83,8 +99,9 @@ class NTTWrapper:
             taps=10,
             delay=3,
             iterations=3,
-            psd_context=0,
-            sampling_rate=16000
+            sampling_rate=16000,
+            stft_size=512,
+            stft_shift=128
     ):
         """
 
@@ -93,14 +110,17 @@ class NTTWrapper:
             delay:
             iterations:
             taps:
-            psd_context:
+            stft_opts: dict contains size, shift
 
         Returns: dereverberated observation (channels, samples)
 
         """
+
         y = y.transpose(1, 0)
         channels = y.shape[1]
-        cfg_lines = self.cfg(channels, sampling_rate, iterations, taps)
+        cfg_lines = self.cfg(
+            channels, sampling_rate, iterations, taps, stft_size, stft_shift
+        )
 
         with tempfile.TemporaryDirectory() as tempdir:
             with (Path(tempdir) / 'local.m').open('w') as cfg_file:
@@ -109,9 +129,6 @@ class NTTWrapper:
 
             self.process.set_variable("y", y)
             self.process.set_variable("cfg", cfg_file.name)
-
-            assert np.allclose(self.process.get_variable("y"), y)
-            assert self.process.get_variable("cfg") == cfg_file.name
 
             self.process.run_code("addpath('" + str(cfg_file.name) + "');")
             self.process.run_code("addpath('" + str(self.path_to_pkg) + "');")
@@ -132,8 +149,9 @@ class NTTWrapper:
 )
 @click.option(
     '--path_to_pkg',
-    default=str(project_root / 'cache'),
-    help='It is recommended to save the NTT-WPE package in the cache directory.'
+    default=str(project_root / 'cache' / 'wpe_v1.33'),
+    help='It is recommended to save the '
+         'NTT-WPE package in the cache directory.'
 )
 @click.option(
     '--output_dir',
@@ -150,13 +168,7 @@ class NTTWrapper:
     default=10,
     help='Number of filter taps of WPE'
 )
-@click.option(
-    '--psd_context',
-    default=0,
-    help='Left and right hand context'
-)
-def main(path_to_pkg, files, output_dir, taps=10, delay=3,
-         iterations=5, psd_context=0):
+def main(path_to_pkg, files, output_dir, taps=10, delay=3, iterations=5):
     """
     A small command line wrapper around the NTT-WPE matlab file.
     http://www.kecl.ntt.co.jp/icl/signal/wpe/
@@ -173,7 +185,9 @@ def main(path_to_pkg, files, output_dir, taps=10, delay=3,
         y, sampling_rate = sf.read(files)
 
     wrapper = NTTWrapper(path_to_pkg)
-    x = wrapper(y, delay, iterations, taps, psd_context, sampling_rate)
+    x = wrapper(y, delay, iterations, taps,
+                sampling_rate, stft_size=512, stft_shift=128
+                )
 
     if len(files) > 1:
         for i, file in enumerate(files):
