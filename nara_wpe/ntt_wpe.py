@@ -17,7 +17,8 @@ def ntt_wrapper(
         iterations=3,
         sampling_rate=16000,
         path_to_package=project_root / 'cache' / 'wpe_v1.33',
-        stft_opts=None
+        stft_size=512,
+        stft_shift=128
 ):
     wpe = NTTWrapper(path_to_package)
     return wpe(
@@ -26,7 +27,8 @@ def ntt_wrapper(
         delay=delay,
         iterations=iterations,
         sampling_rate=sampling_rate,
-        stft_opts=stft_opts
+        stft_size=stft_size,
+        stft_shift=stft_shift
     )
 
 
@@ -52,7 +54,9 @@ class NTTWrapper:
         mlab.start()
         return mlab
 
-    def cfg(self, channels, sampling_rate, iterations, taps, stft_opts):
+    def cfg(self, channels, sampling_rate, iterations, taps,
+            stft_size, stft_shift
+            ):
         """
         Check settings and set local.m accordingly
 
@@ -75,17 +79,17 @@ class NTTWrapper:
                         line = "ssd_conf = struct('max_iter',"\
                                + str(iterations) + ", ...\n"
                 elif 'analym_param' in line:
-                    if not str(stft_opts['size']) in line:
+                    if not str(stft_size) in line:
                         line = "analy_param = struct('win_size',"\
-                                + str(stft_opts['size']) + ", ..."
+                                + str(stft_size) + ", ..."
                 elif 'shift_size' in line:
-                    if not str(stft_opts['shift']) in line:
+                    if not str(stft_shift) in line:
                         line = "                      'shift_size',"\
-                                + str(stft_opts['shift']) + ", ..."
+                                + str(stft_shift) + ", ..."
                 elif 'hanning' in line:
-                    if not str(stft_opts['size']) in line:
+                    if not str(stft_size) in line:
                         line = "                     'win'       , hanning("\
-                                + str(stft_opts['size']) + "));"
+                                + str(stft_size) + "));"
                 lines.append(line)
         return lines
 
@@ -96,7 +100,8 @@ class NTTWrapper:
             delay=3,
             iterations=3,
             sampling_rate=16000,
-            stft_opts=None
+            stft_size=512,
+            stft_shift=128
     ):
         """
 
@@ -111,20 +116,10 @@ class NTTWrapper:
 
         """
 
-        if stft_opts is None:
-            stft_opts = {
-                'size': 512,
-                'shift': 128
-            }
-        elif isinstance(stft_opts, dict):
-            pass
-        else:
-            raise TypeError
-
         y = y.transpose(1, 0)
         channels = y.shape[1]
         cfg_lines = self.cfg(
-            channels, sampling_rate, iterations, taps, stft_opts
+            channels, sampling_rate, iterations, taps, stft_size, stft_shift
         )
 
         with tempfile.TemporaryDirectory() as tempdir:
@@ -134,9 +129,6 @@ class NTTWrapper:
 
             self.process.set_variable("y", y)
             self.process.set_variable("cfg", cfg_file.name)
-
-            assert np.allclose(self.process.get_variable("y"), y)
-            assert self.process.get_variable("cfg") == cfg_file.name
 
             self.process.run_code("addpath('" + str(cfg_file.name) + "');")
             self.process.run_code("addpath('" + str(self.path_to_pkg) + "');")
@@ -182,11 +174,6 @@ def main(path_to_pkg, files, output_dir, taps=10, delay=3, iterations=5):
     http://www.kecl.ntt.co.jp/icl/signal/wpe/
     """
 
-    stft_opts = {
-        'size': 512,
-        'shift': 128
-    }
-
     if len(files) > 1:
         signal_list = [
             sf.read(str(file))[0]
@@ -198,7 +185,9 @@ def main(path_to_pkg, files, output_dir, taps=10, delay=3, iterations=5):
         y, sampling_rate = sf.read(files)
 
     wrapper = NTTWrapper(path_to_pkg)
-    x = wrapper(y, delay, iterations, taps, sampling_rate, stft_opts)
+    x = wrapper(y, delay, iterations, taps,
+                sampling_rate, stft_size=512, stft_shift=128
+                )
 
     if len(files) > 1:
         for i, file in enumerate(files):
