@@ -5,12 +5,18 @@ import click
 import numpy as np
 
 
+def get_working_shape(shape):
+    "Flattens all but the last two dimension."
+    product = functools.reduce(operator.mul, [1] + list(shape[:-2]))
+    return [product] + list(shape[-2:])
+
+
 def segment_axis(
         x,
         length,
         shift,
         axis=-1,
-        end:  "in ['pad', 'cut', None]"='cut',
+        end='cut',  # in ['pad', 'cut', None]
         pad_mode='constant',
         pad_value=0,
 ):
@@ -29,7 +35,7 @@ def segment_axis(
                 * None    No end treatment. Only works when fits perfectly.
                 * 'pad'   Pad with a constant value
         pad_mode:
-        pad_value: The value to use for end='full'
+        pad_value: The value to use for end='pad'
 
     Examples:
         >>> segment_axis(np.arange(10), 4, 2)
@@ -59,17 +65,24 @@ def segment_axis(
         array([[1, 2, 3, 4]])
 
     """
+
+    if x.__class__.__module__ == 'cupy.core.core':
+        import cupy
+        xp = cupy
+    else:
+        xp = np
+
     axis = axis % x.ndim
     elements = x.shape[axis]
 
     if shift <= 0:
         raise ValueError('Can not shift forward by less than 1 element.')
 
-    # full
+    # Pad
     if end == 'pad':
         npad = np.zeros([x.ndim, 2], dtype=np.int)
         pad_fn = functools.partial(
-            np.pad, pad_width=npad, mode=pad_mode, constant_values=pad_value
+            xp.pad, pad_width=npad, mode=pad_mode, constant_values=pad_value
         )
         if elements < length:
             npad[axis, 1] = length - elements
@@ -95,19 +108,26 @@ def segment_axis(
     strides = list(x.strides)
     strides.insert(axis, shift * strides[axis])
 
-    return np.lib.stride_tricks.as_strided(x, strides=strides, shape=shape)
+    if xp == np:
+        return np.lib.stride_tricks.as_strided(x, strides=strides, shape=shape)
+    else:
+        x = x.view()
+        x._set_shape_and_strides(strides=strides, shape=shape)
+        return x
 
 
 def _lstsq(A, B):
     assert A.shape == B.shape, (A.shape, B.shape)
     shape = A.shape
-    working_shape = [functools.reduce(operator.mul, [1, *shape[:-2]]), *shape[-2:]]
+
+    working_shape = get_working_shape(shape)
+
     A = A.reshape(working_shape)
     B = B.reshape(working_shape)
 
     C = np.zeros_like(A)
     for i in range(working_shape[0]):
-        C[i], *_ = np.linalg.lstsq(A[i], B[i])
+        C[i] = np.linalg.lstsq(A[i], B[i])[0]
     return C.reshape(*shape)
 
 
@@ -189,10 +209,8 @@ def _stable_solve(A, B):
     except np.linalg.linalg.LinAlgError:
         shape_A, shape_B = A.shape, B.shape
         assert shape_A[:-2] == shape_A[:-2]
-        working_shape_A = [functools.reduce(operator.mul, [1, *shape_A[:-2]]),
-                           *shape_A[-2:]]
-        working_shape_B = [functools.reduce(operator.mul, [1, *shape_B[:-2]]),
-                           *shape_B[-2:]]
+        working_shape_A = get_working_shape(shape_A)
+        working_shape_B = get_working_shape(shape_B)
         A = A.reshape(working_shape_A)
         B = B.reshape(working_shape_B)
 
@@ -202,12 +220,17 @@ def _stable_solve(A, B):
             try:
                 C[i] = np.linalg.solve(A[i], B[i])
             except np.linalg.linalg.LinAlgError:
-                C[i], *_ = np.linalg.lstsq(A[i], B[i])
+                C[i] = np.linalg.lstsq(A[i], B[i])[0]
         return C.reshape(*shape_B)
 
 
 def build_y_tilde(Y, taps, delay):
     """
+
+    Note: The returned y_tilde consumes a similar amount of memory as Y, because
+        of tricks with strides. Usually the memory consumprion is K times
+        smaller than the memory consumprion of a contignous array,
+
     >>> T, D = 20, 2
     >>> Y = np.arange(start=1, stop=T * D + 1).reshape([T, D]).T
     >>> print(Y)
@@ -227,8 +250,12 @@ def build_y_tilde(Y, taps, delay):
      [ 0  0  0  0  0  1  3  5  7  9 11 13 15 17 19 21 23 25 27 29]
      [ 0  0  0  0  0  2  4  6  8 10 12 14 16 18 20 22 24 26 28 30]]
     >>> Y_tilde = build_y_tilde(Y, taps, 0)
-    >>> print(Y_tilde.shape, (taps*D, T))
-    (8, 20) (8, 20)
+    >>> print(Y_tilde.shape, (taps*D, T), Y_tilde.strides)
+    (8, 20) (8, 20) (-8, 16)
+    >>> print('Pseudo size:', Y_tilde.nbytes)
+    Pseudo size: 1280
+    >>> print('Reak size:', Y_tilde.base.base.base.base.nbytes)
+    Reak size: 368
     >>> print(Y_tilde)
     [[ 1  3  5  7  9 11 13 15 17 19 21 23 25 27 29 31 33 35 37 39]
      [ 2  4  6  8 10 12 14 16 18 20 22 24 26 28 30 32 34 36 38 40]
@@ -242,7 +269,9 @@ def build_y_tilde(Y, taps, delay):
     The first columns are zero because of the delay.
 
     """
-    *S, D, T = Y.shape
+    S = Y.shape[:-2]
+    D = Y.shape[-2]
+    T = Y.shape[-1]
 
     def pad(x, axis=-1, pad_width=taps + delay - 1):
         npad = np.zeros([x.ndim, 2], dtype=np.int)
@@ -253,17 +282,29 @@ def build_y_tilde(Y, taps, delay):
                    constant_values=0)
         return x
 
-    Y_ = segment_axis(pad(Y), taps, 1, axis=-1)
+    # Y_ = segment_axis(pad(Y), K, 1, axis=-1)
+    # Y_ = np.flip(Y_, axis=-1)
+    # if delay > 0:
+    #     Y_ = Y_[..., :-delay, :]
+    # # Y_: ... x D x T x K
+    # Y_ = np.moveaxis(Y_, -1, -3)
+    # # Y_: ... x K x D x T
+    # Y_ = np.reshape(Y_, [*S, K * D, T])
+    # # Y_: ... x KD x T
 
+    # ToDo: write the shape
+    Y_ = pad(Y)
+    Y_ = np.moveaxis(Y_, -1, -2)
     Y_ = np.flip(Y_, axis=-1)
-
+    Y_ = np.ascontiguousarray(Y_)
+    Y_ = np.flip(Y_, axis=-1)
+    Y_ = segment_axis(Y_, taps, 1, axis=-2)
+    Y_ = np.flip(Y_, axis=-2)
     if delay > 0:
-        Y_ = Y_[..., :-delay, :]
-    # Y_: ... x D x T x taps
-    Y_ = np.moveaxis(Y_, -1, -3)
-    # Y_: ... x taps x D x T
-    Y_ = np.reshape(Y_, [*S, taps * D, T])
-    # Y_: ... x taps*D x T
+        Y_ = Y_[..., :-delay, :, :]
+    Y_ = np.reshape(Y_, list(S) + [T, taps * D])
+    Y_ = np.moveaxis(Y_, -2, -1)
+
     return Y_
 
 
@@ -298,7 +339,7 @@ def wpe_v0(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
     if statistics_mode == 'full':
         s = Ellipsis
     elif statistics_mode == 'valid':
-        s = [Ellipsis, slice(delay + taps - 1, None)]
+        s = (Ellipsis, slice(delay + taps - 1, None))
     else:
         raise ValueError(statistics_mode)
 
@@ -334,7 +375,7 @@ def wpe_v6(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
     if statistics_mode == 'full':
         s = Ellipsis
     elif statistics_mode == 'valid':
-        s = [Ellipsis, slice(delay + taps - 1, None)]
+        s = (Ellipsis, slice(delay + taps - 1, None))
     else:
         raise ValueError(statistics_mode)
 
@@ -346,7 +387,7 @@ def wpe_v6(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
         R = np.matmul(Y_tilde_inverse_power[s], hermite(Y_tilde[s]))
         P = np.matmul(Y_tilde_inverse_power[s], hermite(Y[s]))
         G = _stable_solve(R, P)
-        X = Y - (hermite(G) @ Y_tilde)
+        X = Y - np.matmul(hermite(G), Y_tilde)
 
     return X
 
@@ -361,7 +402,7 @@ def wpe_v7(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
     if statistics_mode == 'full':
         s = Ellipsis
     elif statistics_mode == 'valid':
-        s = [Ellipsis, slice(delay + taps - 1, None)]
+        s = (Ellipsis, slice(delay + taps - 1, None))
     else:
         raise ValueError(statistics_mode)
 
@@ -376,7 +417,8 @@ def wpe_v8(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
     """
     v8 is faster than v7 and offers an optional batch mode.
     """
-    if Y.ndim == 2:
+    ndim = Y.ndim
+    if ndim == 2:
         return wpe_v6(
             Y,
             taps=taps,
@@ -385,7 +427,11 @@ def wpe_v8(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
             psd_context=psd_context,
             statistics_mode=statistics_mode
         )
-    elif Y.ndim == 3:
+    elif ndim >= 3:
+        shape = Y.shape
+        if ndim > 3:
+            Y = Y.reshape(np.prod(shape[:-2]), *shape[-2:])
+
         batch_axis = 0
         F = Y.shape[batch_axis]
         index = [slice(None)] * Y.ndim
@@ -394,14 +440,17 @@ def wpe_v8(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
         for f in range(F):
             index[batch_axis] = f
             out.append(wpe_v6(
-                Y=Y[index],
+                Y=Y[tuple(index)],
                 taps=taps,
                 delay=delay,
                 iterations=iterations,
                 psd_context=psd_context,
                 statistics_mode=statistics_mode
             ))
-        return np.stack(out, axis=batch_axis)
+        if ndim > 3:
+            return np.stack(out, axis=batch_axis).reshape(shape)
+        else:
+            return np.stack(out, axis=batch_axis)
     else:
         raise NotImplementedError('Input shape is to be (F, D, T) or (D, T).')
 
@@ -415,7 +464,7 @@ def online_wpe_step(
     ):
     """
     One step of online dereverberation.
-    
+
     Args:
         input_buffer: Buffer of shape (taps+delay+1, F, D)
         power_estimate: Estimate for the current PSD
@@ -430,7 +479,7 @@ def online_wpe_step(
         Updated estimate of R^-1
         Updated estimate of the filter taps
     """
-    
+
     F, D = input_buffer.shape[-2:]
     window = input_buffer[:-delay - 1][::-1]
     window = window.transpose(1, 2, 0).reshape((F, taps * D))
@@ -439,10 +488,10 @@ def online_wpe_step(
         np.einsum('fid,fi->fd', np.conjugate(filter_taps), window)
     )
     nominator = np.einsum('fij,fj->fi', inv_cov, window)
-    denominator = (alpha * power_estimate).astype(window.dtype) 
+    denominator = (alpha * power_estimate).astype(window.dtype)
     denominator += np.einsum('fi,fi->f', np.conjugate(window), nominator)
     kalman_gain = nominator / denominator[:, None]
-    
+
     inv_cov_k = inv_cov - np.einsum(
         'fj,fjm,fi->fim',
         np.conjugate(window),
@@ -451,17 +500,20 @@ def online_wpe_step(
         optimize='optimal'
     )
     inv_cov_k /= alpha
-    
+
     filter_taps_k = (
         filter_taps +
         np.einsum('fi,fm->fim', kalman_gain, np.conjugate(pred))
     )
-    
+
     return pred, inv_cov_k, filter_taps_k
 
 
-def abs_square(x: np.ndarray):
+def abs_square(x):
     """
+
+    Params:
+        x: np.ndarray
 
     https://github.com/numpy/numpy/issues/9679
 
@@ -484,7 +536,116 @@ def abs_square(x: np.ndarray):
     else:
         return x ** 2
 
-    
+
+def window_mean_slow(x, lr_context):
+    """
+    Does not support axis because of np.convolve.
+
+    >>> window_mean_slow([1, 1, 1, 1, 1], 1)
+    array([1., 1., 1., 1., 1.])
+    >>> window_mean_slow([1, 2, 3, 4, 5], 1)
+    array([1.5, 2. , 3. , 4. , 4.5])
+    >>> x = [1, 1, 13, 1, 1]
+    >>> np.testing.assert_equal(window_mean_slow(x, (0, 1)), [1, 7, 7, 1, 1])
+    >>> np.testing.assert_equal(window_mean_slow(x, (1, 0)), [1, 1, 7, 7, 1])
+    >>> np.testing.assert_equal(window_mean_slow(x, (0, 2)), [5, 5, 5, 1, 1])
+    >>> np.testing.assert_equal(window_mean_slow(x, (2, 0)), [1, 1, 5, 5, 5])
+    >>> np.testing.assert_equal(window_mean_slow(x, (1, 2)), [5, 4, 4, 5, 1])
+    >>> np.testing.assert_equal(window_mean_slow(x, (2, 1)), [1, 5, 4, 4, 5])
+    """
+    # axis = -1
+    if isinstance(lr_context, int):
+        lr_context = [lr_context, lr_context]
+    assert len(lr_context) == 2, lr_context
+    l_context, r_context = lr_context
+
+    x = np.asarray(x)
+    filter = np.ones(np.sum(lr_context) + 1)
+    conv = np.convolve(x, filter, mode='full')  # ToDo: axis
+    count = np.convolve(np.ones(x.shape, np.int64), filter, mode='full')  # ToDo: axis
+
+    s = slice(r_context, conv.shape[-1] - l_context)  # ToDo: axis
+    return conv[s] / count[s]
+
+
+def window_mean(x, lr_context, axis=-1):
+    """
+    Take the mean of x at each index with a left and right context.
+    Pseudo code for lr_context == (1, 1):
+        y = np.zeros(...)
+        for i in range(...):
+            if not edge_case(i):
+                y[i] = (x[i - 1] + x[i] + x[i + 1]) / 3
+            elif i == 0:
+                y[i] = (x[i] + x[i + 1]) / 2
+            else:
+                y[i] = (x[i - 1] + x[i]) / 2
+        return y
+
+    >>> window_mean([1, 1, 1, 1, 1], 1)
+    array([1., 1., 1., 1., 1.])
+    >>> window_mean([1, 2, 3, 4, 5], 1)
+    array([1.5, 2. , 3. , 4. , 4.5])
+    >>> x = [1, 1, 13, 1, 1]
+    >>> np.testing.assert_equal(window_mean(x, (0, 1)), [1, 7, 7, 1, 1])
+    >>> np.testing.assert_equal(window_mean(x, (1, 0)), [1, 1, 7, 7, 1])
+    >>> np.testing.assert_equal(window_mean(x, (0, 2)), [5, 5, 5, 1, 1])
+    >>> np.testing.assert_equal(window_mean(x, (2, 0)), [1, 1, 5, 5, 5])
+    >>> np.testing.assert_equal(window_mean(x, (1, 2)), [5, 4, 4, 5, 1])
+    >>> np.testing.assert_equal(window_mean(x, (2, 1)), [1, 5, 4, 4, 5])
+    >>> np.testing.assert_equal(window_mean(x, (9, 9)), [3.4] * 5)
+
+    >>> x = np.random.normal(size=(20, 50))
+    >>> lr_context = np.random.randint(0, 5, size=2)
+    >>> a = window_mean(x, lr_context, axis=1)
+    >>> b = window_mean(x, lr_context, axis=-1)
+    >>> c = window_mean(x.T, lr_context, axis=0).T
+    >>> d = [window_mean_slow(s, lr_context) for s in x]
+    >>> np.testing.assert_equal(a, b)
+    >>> np.testing.assert_equal(a, c)
+    >>> np.testing.assert_almost_equal(a, d)
+
+    >>> import bottleneck as bn
+    >>> a = window_mean(x, [lr_context[0], 0], axis=-1)
+    >>> b = bn.move_mean(x, lr_context[0] + 1, min_count=1)
+    >>> np.testing.assert_almost_equal(a, b)
+
+    >>> a = window_mean(x, [lr_context[0], 0], axis=0)
+    >>> b = bn.move_mean(x, lr_context[0] + 1, min_count=1, axis=0)
+    >>> np.testing.assert_almost_equal(a, b)
+
+    """
+    if isinstance(lr_context, int):
+        lr_context = [lr_context + 1, lr_context]
+    else:
+        assert len(lr_context) == 2, lr_context
+        tmp_l_context, tmp_r_context = lr_context
+        lr_context = tmp_l_context + 1, tmp_r_context
+
+    x = np.asarray(x)
+
+    window_length = sum(lr_context)
+    if window_length == 0:
+        return x
+
+    pad_width = np.zeros((x.ndim, 2), dtype=np.int64)
+    pad_width[axis] = lr_context
+
+    first_slice = [slice(None)] * x.ndim
+    first_slice[axis] = slice(sum(lr_context), None)
+    second_slice = [slice(None)] * x.ndim
+    second_slice[axis] = slice(None, -sum(lr_context))
+
+    def foo(x):
+        cumsum = np.cumsum(np.pad(x, pad_width, mode='constant'), axis=axis)
+        return cumsum[first_slice] - cumsum[second_slice]
+
+    ones_shape = [1] * x.ndim
+    ones_shape[axis] = x.shape[axis]
+
+    return foo(x) / foo(np.ones(ones_shape, np.int64))
+
+
 def get_power_online(signal):
     """
 
@@ -552,13 +713,32 @@ def get_power_inverse(signal, psd_context=0):
     """
     Assumes single frequency bin with shape (D, T).
 
-    Args:
-        signal: (D, T)
-        psd_context: tuple or scalar
+    >>> s = 1 / np.array([np.arange(1, 6)]*3)
+    >>> get_power_inverse(s)
+    array([ 1.,  4.,  9., 16., 25.])
+    >>> get_power_inverse(s * 0 + 1, 1)
+    array([1., 1., 1., 1., 1.])
+    >>> get_power_inverse(s, 1)
+    array([ 1.6       ,  2.20408163,  7.08196721, 14.04421326, 19.51219512])
+    >>> get_power_inverse(s, np.inf)
+    array([3.41620801, 3.41620801, 3.41620801, 3.41620801, 3.41620801])
     """
+    power = np.mean(abs_square(signal), axis=-2)
 
-    power = get_power(signal, psd_context)
-
+    if np.isposinf(psd_context):
+        power = np.broadcast_to(np.mean(power, axis=-1, keepdims=True), power.shape)
+    elif psd_context > 0:
+        assert int(psd_context) == psd_context, psd_context
+        psd_context = int(psd_context)
+        # import bottleneck as bn
+        # Handle the corner case correctly (i.e. sum() / count)
+        # Use bottleneck when only left context is requested
+        # power = bn.move_mean(power, psd_context*2+1, min_count=1)
+        power = window_mean(power, (psd_context, psd_context))
+    elif psd_context == 0:
+        pass
+    else:
+        raise ValueError(psd_context)
     eps = 1e-10 * np.max(power)
     inverse_power = 1 / np.maximum(power, eps)
     return inverse_power
@@ -585,9 +765,9 @@ def get_correlations(Y, inverse_power, taps, delay):
     correlation_vector = np.zeros((D * D * taps, 1), dtype=Y.dtype)
     for t in range(delay + taps - 1, T):
         Psi = get_Psi(Y, t - delay, taps)
-        correlation_matrix += inverse_power[t] * np.dot(Psi.conj(), Psi.T)
+        correlation_matrix += inverse_power[t] * np.matmul(Psi.conj(), Psi.T)
         correlation_vector \
-            += inverse_power[t] * np.dot(Psi.conj(), Y[:, t])[:, None]
+            += inverse_power[t] * np.matmul(Psi.conj(), Y[:, t])[:, None]
 
     return correlation_matrix, correlation_vector
 
@@ -776,7 +956,10 @@ def perform_filter_operation(Y, filter_matrix_conj, taps, delay):
             if t - tau >= 0:
                 # assert t - tau >= 0, (t, tau)
                 assert tau - delay >= 0, (tau, delay)
-                X[:, t] -= filter_matrix_conj[tau - delay, :, :].T @ Y[:, t - tau]
+                X[:, t] -= np.matmul(
+                    filter_matrix_conj[tau - delay, :, :].T,
+                    Y[:, t - tau]
+                )
     return X
 
 
@@ -868,7 +1051,7 @@ def perform_filter_operation_v4(Y, filter_matrix_conj, taps, delay):
 
 
 def perform_filter_operation_v5(Y, Y_tilde, filter_matrix):
-    X = Y - (hermite(filter_matrix) @ Y_tilde)
+    X = Y - np.matmul(hermite(filter_matrix), Y_tilde)
     return X
 
 

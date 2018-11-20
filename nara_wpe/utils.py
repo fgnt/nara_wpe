@@ -108,13 +108,12 @@ def stft(
         time_signal,
         size,
         shift,
-        *,
         axis=-1,
         window=signal.blackman,
-        window_length,
-        fading,
-        pad,
-        symmetric_window,
+        window_length=None,
+        fading=True,
+        pad=True,
+        symmetric_window=False,
 ):
     """
     ToDo: Open points:
@@ -189,13 +188,13 @@ def stft(
         )
     except ValueError as e:
         raise ValueError(
-            f'Could not calculate the stft, something does not match.\n'
-            f'mapping: {mapping}, '
-            f'time_signal_seg.shape: {time_signal_seg.shape}, '
-            f'window.shape: {window.shape}, '
-            f'size: {size}'
-            f'axis+1: {axis+1}'
-        ) from e
+            'Could not calculate the stft, something does not match.\n' +
+            'mapping: {}, '.format(mapping) +
+            'time_signal_seg.shape: {}, '.format(time_signal_seg.shape) +
+            'window.shape: {}, '.format(window.shape) +
+            'size: {}'.format(size) +
+            'axis+1: {axis+1}'
+        )
 
 
 def _samples_to_stft_frames(samples, size, shift):
@@ -269,13 +268,12 @@ _biorthogonal_window_fastest = _biorthogonal_window_brute_force
 
 def istft(
         stft_signal,
-        size: int=1024,
-        shift: int=256,
-        *,
+        size=1024,
+        shift=256,
         window=signal.blackman,
-        fading: bool=True,
-        window_length: int=None,
-        symmetric_window: bool=False,
+        fading=True,
+        window_length=None,
+        symmetric_window=False,
 ):
     """
     Calculated the inverse short time Fourier transform to exactly reconstruct
@@ -327,8 +325,9 @@ def istft(
     #     window = np.ones_like(window)
 
     time_signal = np.zeros(
-        (*stft_signal.shape[:-2],
-         stft_signal.shape[-2] * shift + window_length - shift))
+        list(stft_signal.shape[:-2]) +
+        [stft_signal.shape[-2] * shift + window_length - shift]
+    )
 
     # Get the correct view to time_signal
     time_signal_seg = segment_axis_v2(
@@ -338,7 +337,7 @@ def istft(
     # Unbuffered inplace add
     np.add.at(
         time_signal_seg,
-        ...,
+        Ellipsis,
         window * np.real(irfft(stft_signal))[..., :window_length]
     )
     # The [..., :window_length] is the inverse of the window padding in rfft.

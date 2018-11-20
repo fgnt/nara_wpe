@@ -5,7 +5,7 @@ https://packaging.python.org/en/latest/distributing.html
 https://github.com/pypa/sampleproject
 """
 
-import setuptools as st 
+import setuptools as st
 from codecs import open
 from os import path
 import numpy
@@ -22,7 +22,7 @@ st.setup(
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
-    version='0.0.0',
+    version='0.0.1',
 
     description='Toy Example for WPE',
     long_description=long_description,
@@ -69,6 +69,7 @@ st.setup(
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=[
+        'pathlib2;python_version<"3.0"',
         'numpy',
         'tqdm',
         'soundfile',

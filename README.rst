@@ -14,40 +14,58 @@ nara_wpe
     :target: https://raw.githubusercontent.com/fgnt/nara_wpe/master/LICENSE
     :alt: MIT License
 
-Weighted Prediction Error
-=========================
+Weighted Prediction Error for speech dereverberation
+====================================================
 
 Background noise and signal reverberation due to reflections in an enclosure are the two main impairments in acoustic
 signal processing and far-field speech recognition. This work addresses signal dereverberation techniques based on WPE for speech recognition and other far-field applications.
 WPE is a compelling algorithm to blindly dereverberate acoustic signals based on long-term linear prediction.
 
-Different implementations of "Weighted Prediction Error" for speech dereverberation
-====================================================================================
-
+The main algorithm is based on the following paper:
 Yoshioka, Takuya, and Tomohiro Nakatani. "Generalization of multi-channel linear prediction methods for blind MIMO impulse response shortening." IEEE Transactions on Audio, Speech, and Language Processing 20.10 (2012): 2707-2720.
 
-This code has been tested with Python 3.5 and 3.6.
+Content
+=======
 
-Clone the repository. Then install it as follows if you want to make changes to the code:
+- Iterative offline WPE/ block-online WPE/ recursive frame-online WPE
+- All algorithms implemented both in Numpy and in TensorFlow.
+- Continuously tested with Python 2.7, 3.5 and 3.6.
+- Automatically built documentation: `nara-wpe.readthedocs.io <https://nara-wpe.readthedocs.io/en/latest/>`_
+- Modular design to facilitate changes for further research
+
+Installation
+============
+
+Install it directly with Pip, if you just want to use it:
 
 .. code-block:: bash
 
-  https://github.com/fgnt/nara_wpe.git
+  pip install nara_wpe
+
+If you want to make changes or want the most recent version: Clone the repository and install it as follows:
+
+.. code-block:: bash
+
+  git clone https://github.com/fgnt/nara_wpe.git
   cd nara_wpe
   pip install --editable .
-
-Alternatively, if you just want to run it, install it directly with Pip from Github:
-
-.. code-block:: bash
-
-  pip install git+https://github.com/fgnt/nara_wpe.git
 
 Check the example notebook for further details.
 If you download the example notebook, you can listen to the input audio examples and to the dereverberated output too.
 
-You can find some documentation here:
-`nara-wpe.readthedocs.io 
-<https://nara-wpe.readthedocs.io/en/latest/>`_.
+Citation
+========
+
+To cite this implementation, you can cite the following paper::
+
+    @InProceedings{Drude2018NaraWPE,
+      Title     = {{NARA-WPE: A Python package for weighted prediction error dereverberation in Numpy and Tensorflow for online and offline processing}},
+      Author    = {Drude, Lukas and Heymann, Jahn and Boeddeker, Christoph and Haeb-Umbach, Reinhold},
+      Booktitle = {13. ITG Fachtagung Sprachkommunikation (ITG 2018)},
+      Year      = {2018},
+      Month     = {Oct},
+    }
+
 
 Development history
 ====================
