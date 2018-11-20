@@ -105,7 +105,7 @@ class NTTWrapper:
             delay:
             iterations:
             taps:
-            stft_opts: dict contains size, shift and window_length
+            stft_opts: dict contains size, shift
 
         Returns: dereverberated observation (channels, samples)
 
