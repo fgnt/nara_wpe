@@ -13,8 +13,8 @@ delay = 1
 def config_iterator():
     return product(
         range(1, 11),
-        range(1, 21),  # K
-        [2, 4, 8],  # num_mics # range(2, 11)
+        [5, 10],  # K
+        [2, 4, 6],  # num_mics # range(2, 11)
         [512],  # frame_size # 1024
         [tf.complex64],  # dtype # , tf.complex128
         ['/cpu:0']  # device # '/gpu:0'
@@ -39,7 +39,7 @@ if __name__ == '__main__':
                 frame_size=frame_size,
                 dtype=dtype,
                 device=device,
-                op=tf_wpe.online_dereverb_step(
+                op=tf_wpe.online_wpe_step(
                     input_buffer, power_estimate, inv_cov_tm1, filter_taps_tm1,
                     0.9999, K, delay)
             ))
