@@ -67,7 +67,7 @@ if __name__ == '__main__':
             results.append(result)
 
     res = pd.DataFrame(results)
-    print(res)
+    print(res.groupby(['K', 'num_mics', 'frame_size', 'device', 'dtype']).mean())
 
     with open('online_wpe_results.json', 'w') as fid:
         res.to_json(fid)
