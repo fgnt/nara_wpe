@@ -75,7 +75,6 @@ st.setup(
         'soundfile',
         'bottleneck',
         'click',
-        'scipy',
         'cached-property'
     ],
 
