@@ -36,7 +36,7 @@ class NTTWrapper:
     """
     The WPE package has to be downloaded from
     http://www.kecl.ntt.co.jp/icl/signal/wpe/download.html. It is recommended
-    to store it in the cache directory of Nara-WPE
+    to store it in the cache directory of Nara-WPE.
     """
     def __init__(self, path_to_pkg):
         self.path_to_pkg = Path(path_to_pkg)
