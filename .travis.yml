@@ -12,6 +12,7 @@ install:
   - pip install coverage
   - pip install jupyter
   - pip install matplotlib
+  - pip install scipy
 
 script:
   - pytest tests/
