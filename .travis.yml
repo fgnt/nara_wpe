@@ -10,6 +10,9 @@ install:
   - pip install -e .
   - pip install tensorflow
   - pip install coverage
+  - pip install jupyter
+  - pip install matplotlib
+  - pip install scipy
 
 script:
   - pytest tests/

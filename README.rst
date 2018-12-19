@@ -50,7 +50,7 @@ If you want to make changes or want the most recent version: Clone the repositor
   cd nara_wpe
   pip install --editable .
 
-Check the example notebook for further details.
+Check the `example notebook <https://github.com/fgnt/nara_wpe/tree/master/examples>`_ for further details.
 If you download the example notebook, you can listen to the input audio examples and to the dereverberated output too.
 
 Citation
