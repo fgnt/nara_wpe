@@ -43,9 +43,9 @@ class TestNotebooks(unittest.TestCase):
         nb, errors = _notebook_run(self.root / 'WPE_Numpy_offline.ipynb')
         assert errors == []
 
-    def test_wpe_numpy_online(self):
-        nb, errors = _notebook_run(self.root / 'WPE_Numpy_online.ipynb')
-        assert errors == []
+    # def test_wpe_numpy_online(self):
+    #     nb, errors = _notebook_run(self.root / 'WPE_Numpy_online.ipynb')
+    #     assert errors == []
 
     def test_wpe_tensorflow_offline(self):
         nb, errors = _notebook_run(self.root / 'WPE_Tensorflow_offline.ipynb')
