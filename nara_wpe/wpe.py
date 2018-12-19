@@ -509,6 +509,139 @@ def online_wpe_step(
     return pred, inv_cov_k, filter_taps_k
 
 
+class OnlineWPE:
+    """
+    A recursive approach which carries the covariance matrices
+    as well as the filter taps and the power estimate.
+    The online step is a special case for online framewise
+    dereverberation.
+
+    Args:
+        taps (int): Number of filter taps
+        delay (int): Delay in frames
+        alpha (float): Smoothing factor, 0.9999
+        power_estimate: Estimate of power as an initialization
+                        (frequency_bins,)
+
+    Returns:
+        Dereverberated frame of shape (F, D)
+    """
+
+    def __init__(self, taps, delay, alpha, power_estimate=None, channel=8,
+                 frequency_bins=257):
+        self.alpha = alpha
+        self.taps = taps
+        self.delay = delay
+
+        self.inv_cov = np.stack(
+            [np.eye(channel * taps) for _ in range(frequency_bins)]
+        )
+        self.filter_taps = np.zeros((frequency_bins, channel * taps, channel))
+        if power_estimate is not None:
+            assert frequency_bins == power_estimate.shape[0], \
+                "({},) =! {}".format(frequency_bins, power_estimate.shape)
+            self.power = np.ones(frequency_bins) * power_estimate
+        self.buffer = np.zeros(
+            (self.taps + self.delay + 1, frequency_bins, channel),
+            dtype=np.complex128
+        )
+
+    def step_frame(self, frame):
+        """
+        Online WPE in framewise fashion.
+        Args:
+            frame: (F, D)
+        Returns:
+            prediction: (F, D)
+        """
+        assert self.buffer.shape[-2:] == frame.shape[-2:],\
+            "Set channel and frequency bins."
+
+        prediction, window = self._get_prediction(frame)
+
+        self._update_buffer(frame)
+        self._update_power_block()
+        self._update_kalman_gain(window)
+        self._update_inv_cov(window)
+        self._update_taps(prediction)
+
+        return prediction
+
+    def step_block(self, block, block_shift=1):
+        """
+        Online WPE in blockwise fashion.
+        Args:
+            block: (taps+delay+1, F, D)
+            block_shift:
+        Returns:
+            prediction: (F, D)
+        """
+        assert self.buffer.shape[-2:] == block.shape[-2:],\
+            "Set channel and frequency bins."
+        assert self.buffer.shape[0] == block.shape[0],\
+            "Check block length. ({}+{}+1, F, D)".format(self.taps, self.delay)
+
+        prediction, window = self._get_prediction(block, block_shift)
+
+        self._update_buffer(block)
+        self._update_power_block()
+        self._update_kalman_gain(window)
+        self._update_inv_cov(window)
+        self._update_taps(prediction)
+
+        return prediction
+
+    def _get_prediction(self, observation, block_shift=1):
+        #TODO: Only block shift of 1 works.
+        F, D = observation.shape[-2:]
+        window = self.buffer[:-self.delay - 1]
+        window = window.transpose(1, 2, 0).reshape((F, self.taps * D))
+        if observation.ndim == 2:
+            observation = observation[None, ...]
+        prediction = (
+            observation[-block_shift] -
+            np.einsum('fid,fi->fd', np.conjugate(self.filter_taps), window)
+        )
+        return prediction, window
+
+    def _update_taps(self, prediction):
+        self.filter_taps = (
+            self.filter_taps +
+            np.einsum('fi,fm->fim', self.kalman_gain, np.conjugate(prediction))
+        )
+
+    def _update_inv_cov(self, window):
+        self.inv_cov = self.inv_cov - np.einsum(
+            'fj,fjm,fi->fim',
+            np.conjugate(window),
+            self.inv_cov,
+            self.kalman_gain,
+            optimize='optimal'
+        )
+        self.inv_cov /= self.alpha
+
+    def _update_kalman_gain(self, window):
+        nominator = np.einsum('fij,fj->fi', self.inv_cov, window)
+        denominator = (self.alpha * self.power).astype(window.dtype)
+        denominator += np.einsum('fi,fi->f', np.conjugate(window), nominator)
+        self.kalman_gain = nominator / denominator[:, None]
+
+    def _update_power_block(self):
+        self.power = np.mean(
+            get_power(self.buffer.transpose(1, 2, 0)),
+            -1
+        )
+
+    def _update_buffer(self, update):
+        if update.ndim == 2:
+            self.buffer = np.roll(self.buffer, -1, axis=0)
+            assert update.shape[-2:] == self.buffer.shape[-2:]
+            self.buffer[-1] = update
+        elif update.ndim == 3:
+            assert self.buffer.shape == update.shape, 'Shape inconsistent.'
+            self.buffer = update
+
+
 def abs_square(x):
     """
 
