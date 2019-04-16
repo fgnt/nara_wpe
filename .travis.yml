@@ -8,7 +8,7 @@ cache: pip
 
 install:
   - pip install -e .
-  - pip install tensorflow
+  - pip install tensorflow==1.12.0
   - pip install coverage
   - pip install jupyter
   - pip install matplotlib
