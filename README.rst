@@ -2,8 +2,8 @@
 nara_wpe
 ========
 
-.. image:: https://readthedocs.org/projects/nara_wpe/badge/?version=pypi-release
-    :target: http://nara-wpe.readthedocs.io/en/pypi-release/
+.. image:: https://readthedocs.org/projects/nara-wpe/badge/?version=latest
+    :target: http://nara-wpe.readthedocs.io/en/latest/
     :alt: Documentation Status
     
 .. image:: https://travis-ci.org/fgnt/nara_wpe.svg?branch=master
