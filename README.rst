@@ -14,6 +14,7 @@ nara_wpe
     :target: https://raw.githubusercontent.com/fgnt/nara_wpe/master/LICENSE
     :alt: MIT License
 
+
 Weighted Prediction Error for speech dereverberation
 ====================================================
 
@@ -24,11 +25,12 @@ WPE is a compelling algorithm to blindly dereverberate acoustic signals based on
 The main algorithm is based on the following paper:
 Yoshioka, Takuya, and Tomohiro Nakatani. "Generalization of multi-channel linear prediction methods for blind MIMO impulse response shortening." IEEE Transactions on Audio, Speech, and Language Processing 20.10 (2012): 2707-2720.
 
+
 Content
 =======
 
 - Iterative offline WPE/ block-online WPE/ recursive frame-online WPE
-- All algorithms implemented both in Numpy and in TensorFlow.
+- All algorithms implemented both in Numpy and in TensorFlow (works with version `1.12.0`).
 - Continuously tested with Python 2.7, 3.5 and 3.6.
 - Automatically built documentation: `nara-wpe.readthedocs.io <https://nara-wpe.readthedocs.io/en/latest/>`_
 - Modular design to facilitate changes for further research
@@ -52,6 +54,7 @@ If you want to make changes or want the most recent version: Clone the repositor
 
 Check the `example notebook <https://github.com/fgnt/nara_wpe/tree/master/examples>`_ for further details.
 If you download the example notebook, you can listen to the input audio examples and to the dereverberated output too.
+
 
 Citation
 ========
