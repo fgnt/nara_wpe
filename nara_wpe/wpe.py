@@ -454,10 +454,10 @@ def wpe_v8(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
     """
     Loopy Multiple Input Multiple Output Weighted Prediction Error [1, 2] implementation
     
-    Is many cases this implementation is the fastes numpy implementation.
+    In many cases this implementation is the fastest Numpy implementation.
     It loops over the independent axes. This reduces the memory footprint
     and in experiments it turned out that this is faster than a batched 
-    implementation (i.e. `wpe_v6` or `wpe_v7`).
+    implementation (i.e. `wpe_v6` or `wpe_v7`) due to memory locality.
 
     Args:
         Y: Complex valued STFT signal with shape (..., D, T).
