@@ -197,20 +197,74 @@ def stft(
         )
 
 
-def _samples_to_stft_frames(samples, size, shift):
+def _samples_to_stft_frames(
+        samples,
+        size,
+        shift,
+        *,
+        pad=True,
+        fading=False,
+):
     """
-    Calculates STFT frames from samples in time domain.
+    Calculates number of STFT frames from number of samples in time domain.
 
     Args:
         samples: Number of samples in time domain.
         size: FFT size.
+            window_length often equal to FFT size. The name size should be
+            marked as deprecated and replaced with window_length.
         shift: Hop in samples.
+        pad: See stft.
+        fading: See stft. Note to keep old behavior, default value is False.
 
     Returns:
         Number of STFT frames.
+
+    >>> _samples_to_stft_frames(19, 16, 4)
+    2
+    >>> _samples_to_stft_frames(20, 16, 4)
+    2
+    >>> _samples_to_stft_frames(21, 16, 4)
+    3
+
+    >>> stft(np.zeros(19), 16, 4, fading=False).shape
+    (2, 9)
+    >>> stft(np.zeros(20), 16, 4, fading=False).shape
+    (2, 9)
+    >>> stft(np.zeros(21), 16, 4, fading=False).shape
+    (3, 9)
+
+    >>> _samples_to_stft_frames(19, 16, 4, fading=True)
+    8
+    >>> _samples_to_stft_frames(20, 16, 4, fading=True)
+    8
+    >>> _samples_to_stft_frames(21, 16, 4, fading=True)
+    9
+
+    >>> stft(np.zeros(19), 16, 4).shape
+    (8, 9)
+    >>> stft(np.zeros(20), 16, 4).shape
+    (8, 9)
+    >>> stft(np.zeros(21), 16, 4).shape
+    (9, 9)
+
+    >>> _samples_to_stft_frames(21, 16, 3, fading=True)
+    12
+    >>> stft(np.zeros(21), 16, 3).shape
+    (12, 9)
+    >>> _samples_to_stft_frames(21, 16, 3)
+    3
+    >>> stft(np.zeros(21), 16, 3, fading=False).shape
+    (3, 9)
     """
+    if fading:
+        samples = samples + 2 * (size - shift)
+
     # I changed this from np.ceil to math.ceil, to yield an integer result.
-    return ceil((samples - size + shift) / shift)
+    frames = (samples - size + shift) / shift
+    if pad:
+        return ceil(frames)
+    return int(frames)
 
 
 def _stft_frames_to_samples(frames, size, shift):
