@@ -69,6 +69,12 @@ To cite this implementation, you can cite the following paper::
       Month     = {Oct},
     }
 
+Comparision with the NTT WPE implementation
+===========================================
+
+The fairly recent John Hopkins University paper (Manohar, Vimal: `Acoustic Modeling for Overlapping Speech Recognition: JHU CHiME-5 Challenge System <https://ieeexplore.ieee.org/abstract/document/8682556>`_, ICASSP 2019) reporting on their CHiME 5 challenge results dedicate an entire table to the comparison of the Nara-WPE implementation and the NTT WPE implementation.
+Their result is, that the Nara-WPE implementation is as least as good as the NTT WPE implementation in all their reported conditions.
+
 
 Development history
 ====================
