@@ -30,13 +30,16 @@ def segment_axis(
         x: The array to segment
         length: The length of each frame
         shift: The number of array elements by which to step forward
+               Negative values are also allowed.
         axis: The axis to operate on; if None, act on the flattened array
         end: What to do with the last frame, if the array is not evenly
                 divisible into pieces. Options are:
                 * 'cut'   Simply discard the extra values
                 * None    No end treatment. Only works when fits perfectly.
                 * 'pad'   Pad with a constant value
-        pad_mode:
+                * 'conv_pad' Special padding for convolution, assumes
+                             shift == 1, see example below
+        pad_mode: see numpy.pad
         pad_value: The value to use for end='pad'
 
     Examples:
@@ -141,15 +144,37 @@ def segment_axis(
         array([[ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15],
                [ 4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 16, 17, 18,  0]])
 
+        >>> import torch
+        >>> segment_axis(torch.tensor(np.arange(10)), 4, 2)  # simple example
+        tensor([[0, 1, 2, 3],
+                [2, 3, 4, 5],
+                [4, 5, 6, 7],
+                [6, 7, 8, 9]])
     """
+    backend = {
+        'numpy': 'numpy',
+        'cupy.core.core': 'cupy',
+        'torch': 'torch',
+    }[x.__class__.__module__]
 
-    if x.__class__.__module__ == 'cupy.core.core':
+    if backend == 'numpy':
+        xp = np
+    elif backend == 'cupy':
         import cupy
         xp = cupy
+    elif backend == 'torch':
+        import torch
+        xp = torch
     else:
-        xp = np
+        raise Exception('Can not happen')
 
-    axis = axis % x.ndim
+    try:
+        ndim = x.ndim
+    except AttributeError:
+        # For Pytorch 1.2 and below
+        ndim = x.dim()
+
+    axis = axis % ndim
 
     # Implement negative shift with a positive shift and a flip
     # stride_tricks does not work correct with negative stride
@@ -169,17 +194,17 @@ def segment_axis(
     # Pad
     if end == 'pad':
         if x.shape[axis] < length:
-            npad = np.zeros([x.ndim, 2], dtype=np.int)
+            npad = np.zeros([ndim, 2], dtype=np.int)
             npad[axis, 1] = length - x.shape[axis]
             x = xp.pad(x, pad_width=npad, mode=pad_mode, **pad_kwargs)
         elif shift != 1 and (x.shape[axis] + shift - length) % shift != 0:
-            npad = np.zeros([x.ndim, 2], dtype=np.int)
+            npad = np.zeros([ndim, 2], dtype=np.int)
             npad[axis, 1] = shift - ((x.shape[axis] + shift - length) % shift)
             x = xp.pad(x, pad_width=npad, mode=pad_mode, **pad_kwargs)
 
     elif end == 'conv_pad':
         assert shift == 1, shift
-        npad = np.zeros([x.ndim, 2], dtype=np.int)
+        npad = np.zeros([ndim, 2], dtype=np.int)
         npad[axis, :] = length - shift
         x = xp.pad(x, pad_width=npad, mode=pad_mode, **pad_kwargs)
     elif end is None:
@@ -192,20 +217,53 @@ def segment_axis(
     else:
         raise ValueError(end)
 
+    # Calculate desired shape and strides
     shape = list(x.shape)
+    # assert shape[axis] >= length, shape
     del shape[axis]
     shape.insert(axis, (x.shape[axis] + shift - length) // shift)
     shape.insert(axis + 1, length)
 
-    strides = list(x.strides)
+    def get_strides(array):
+        try:
+            return list(array.strides)
+        except AttributeError:
+            # fallback for torch
+            return list(array.stride())
+
+    strides = get_strides(x)
     strides.insert(axis, shift * strides[axis])
 
-    if xp == np:
-        x = np.lib.stride_tricks.as_strided(x, strides=strides, shape=shape)
-    else:
-        x = x.view()
-        x._set_shape_and_strides(strides=strides, shape=shape)
+    # Alternative to np.ndarray.__new__
+    # I am not sure if np.lib.stride_tricks.as_strided is better.
+    # return np.lib.stride_tricks.as_strided(
+    #     x, shape=shape, strides=strides)
+    try:
+        if backend == 'numpy':
+            x = np.lib.stride_tricks.as_strided(x, strides=strides, shape=shape)
+        elif backend == 'cupy':
+            x = x.view()
+            x._set_shape_and_strides(strides=strides, shape=shape)
+        elif backend == 'torch':
+            import torch
+            x = torch.as_strided(x, size=shape, stride=strides)
+        else:
+            raise Exception('Can not happen')
 
+        # return np.ndarray.__new__(np.ndarray, strides=strides,
+        #                           shape=shape, buffer=x, dtype=x.dtype)
+    except Exception:
+        print('strides:', get_strides(x), ' -> ', strides)
+        print('shape:', x.shape, ' -> ', shape)
+        try:
+            print('flags:', x.flags)
+        except AttributeError:
+            pass  # for pytorch
+        print('Parameters:')
+        print('shift:', shift, 'Note: negative shift is implemented with a '
+                               'following flip')
+        print('length:', length, '<- Has to be positive.')
+        raise
     if do_flip:
         return xp.flip(x, axis=axis)
     else:
