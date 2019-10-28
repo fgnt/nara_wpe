@@ -162,6 +162,9 @@ def stft(
         pad_width[axis, :] = window_length - shift
         time_signal = np.pad(time_signal, pad_width, mode='constant')
 
+    if isinstance(window, str):
+        window = getattr(signal.windows, window)
+
     if symmetric_window:
         window = window(window_length)
     else:
@@ -365,6 +368,9 @@ def istft(
 
     if window_length is None:
         window_length = size
+
+    if isinstance(window, str):
+        window = getattr(signal.windows, window)
 
     if symmetric_window:
         window = window(window_length)
