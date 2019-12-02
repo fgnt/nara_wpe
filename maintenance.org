@@ -1,0 +1,29 @@
+See: https://packaging.python.org/tutorials/packaging-projects/
+
+1. Update =setup.py= to new version number
+2. Commit this change and push it
+
+3. Tag and upload
+#+BEGIN_EXAMPLE
+cd Projects/
+git clone https://github.com/fgnt/nara_wpe.git nara_wpe_pypi_version
+cd nara_wpe_pypi_version
+~/anaconda3/bin/pip install --upgrade setuptools
+~/anaconda3/bin/pip install --upgrade wheel
+~/anaconda3/bin/pip install --upgrade twine
+git tag # Lists existing tags
+git tag -a 0.0.5 -m "Pypi version update 0.0.5"
+git tag # Lists existing tags
+git push origin --tags
+~/anaconda3/bin/python setup.py sdist bdist_wheel
+twine upload --repository-url https://test.pypi.org/legacy/ dist/*
+twine upload dist/*
+#+END_EXAMPLE
+
+Delete tags:
+#+BEGIN_EXAMPLE
+git tag -d 0.0.2
+git push origin :refs/tags/0.0.2
+#+END_EXAMPLE
+
+Delete local copy again
