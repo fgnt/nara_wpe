@@ -69,6 +69,13 @@ To cite this implementation, you can cite the following paper::
       Month     = {Oct},
     }
 
+
+To view the paper see
+`IEEE Xplore <https://ieeexplore.ieee.org/document/8578026>`__ (`PDF <https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=8578026>`__)
+or for a preview see `Paderborn University RIS <https://ris.uni-paderborn.de/publication/11873>`__ (`PDF <https://groups.uni-paderborn.de/nt/pubs/2018/ITG_2018_Drude_Paper.pdf>`__).
+
+
+
 Comparision with the NTT WPE implementation
 ===========================================
 
