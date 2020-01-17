@@ -634,8 +634,8 @@ def wpe_v8(
             'valid': Only calculate correlation matrix and vector on valid
             slices of the observation.
         inplace: Whether to change Y inplace. Has only advantages, when Y has
-            independent axis, because the core WPE algorithm does not support
-            a inplace modification of the observation.
+            independent axes, because the core WPE algorithm does not support
+            an inplace modification of the observation.
             This option may be relevant, when Y is so large, that you do not
             want to double the memory consumption (i.e. save Y and the
             dereverberated signal in the memory).
