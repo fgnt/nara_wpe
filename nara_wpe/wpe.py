@@ -603,7 +603,15 @@ def wpe_v7(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
     return X
 
 
-def wpe_v8(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='full'):
+def wpe_v8(
+        Y,
+        taps=10,
+        delay=3,
+        iterations=3,
+        psd_context=0,
+        statistics_mode='full',
+        inplace=False
+):
     """
     Loopy Multiple Input Multiple Output Weighted Prediction Error [1, 2] implementation
     
@@ -625,6 +633,12 @@ def wpe_v8(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
             estimation of the correlation matrix and vector.
             'valid': Only calculate correlation matrix and vector on valid
             slices of the observation.
+        inplace: Whether to change Y inplace. Has only advantages, when Y has
+            independent axis, because the core WPE algorithm does not support
+            a inplace modification of the observation.
+            This option may be relevant, when Y is so large, that you do not
+            want to double the memory consumption (i.e. save Y and the
+            dereverberated signal in the memory).
 
     Returns:
         Estimated signal with the same shape as Y
@@ -638,7 +652,7 @@ def wpe_v8(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
     """
     ndim = Y.ndim
     if ndim == 2:
-        return wpe_v6(
+        out = wpe_v6(
             Y,
             taps=taps,
             delay=delay,
@@ -646,30 +660,25 @@ def wpe_v8(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
             psd_context=psd_context,
             statistics_mode=statistics_mode
         )
+        if inplace:
+            Y[...] = out
+        return out
     elif ndim >= 3:
-        shape = Y.shape
-        if ndim > 3:
-            Y = Y.reshape(np.prod(shape[:-2]), *shape[-2:])
+        if inplace:
+            out = Y
+        else:
+            out = np.empty_like(Y)
 
-        batch_axis = 0
-        F = Y.shape[batch_axis]
-        index = [slice(None)] * Y.ndim
-
-        out = []
-        for f in range(F):
-            index[batch_axis] = f
-            out.append(wpe_v6(
-                Y=Y[tuple(index)],
+        for index in np.ndindex(Y.shape[:-2]):
+            out[index] = wpe_v6(
+                Y=Y[index],
                 taps=taps,
                 delay=delay,
                 iterations=iterations,
                 psd_context=psd_context,
-                statistics_mode=statistics_mode
-            ))
-        if ndim > 3:
-            return np.stack(out, axis=batch_axis).reshape(shape)
-        else:
-            return np.stack(out, axis=batch_axis)
+                statistics_mode=statistics_mode,
+            )
+        return out
     else:
         raise NotImplementedError(
             'Input shape has to be (..., D, T) and not {}.'.format(Y.shape)
