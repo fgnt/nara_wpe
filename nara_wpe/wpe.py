@@ -720,7 +720,7 @@ def online_wpe_step(
     nominator = np.einsum('fij,fj->fi', inv_cov, window)
     denominator = (alpha * power_estimate).astype(window.dtype)
     denominator += np.einsum('fi,fi->f', np.conjugate(window), nominator)
-    kalman_gain = nominator / denominator[:, None]
+    kalman_gain = nominator * _stable_positive_inverse(denominator)[:, None]
 
     inv_cov_k = inv_cov - np.einsum(
         'fj,fjm,fi->fim',
@@ -854,7 +854,7 @@ class OnlineWPE:
         nominator = np.einsum('fij,fj->fi', self.inv_cov, window)
         denominator = (self.alpha * self.power).astype(window.dtype)
         denominator += np.einsum('fi,fi->f', np.conjugate(window), nominator)
-        self.kalman_gain = nominator / denominator[:, None]
+        self.kalman_gain = nominator * _stable_positive_inverse(denominator)[:, None]
 
     def _update_power_block(self):
         self.power = np.mean(
@@ -1072,6 +1072,24 @@ def get_power(signal, psd_context=0):
     return np.squeeze(power)
 
 
+def _stable_positive_inverse(power):
+    """
+    Calculate the inverse of a positive value.
+    """
+    eps = 1e-10 * np.max(power)
+    if eps == 0:
+        # Special case when signal is zero.
+        # Does not happen on real data.
+        # This only happens in artificial cases, e.g. redacted signal parts,
+        # where the signal is set to be zero from a human.
+        #
+        # The scale of the power does not matter, so take 1.
+        inverse_power = np.ones_like(power)
+    else:
+        inverse_power = 1 / np.maximum(power, eps)
+    return inverse_power
+
+
 def get_power_inverse(signal, psd_context=0):
     """
     Assumes single frequency bin with shape (D, T).
@@ -1085,6 +1103,8 @@ def get_power_inverse(signal, psd_context=0):
     array([ 1.6       ,  2.20408163,  7.08196721, 14.04421326, 19.51219512])
     >>> get_power_inverse(s, np.inf)
     array([3.41620801, 3.41620801, 3.41620801, 3.41620801, 3.41620801])
+    >>> get_power_inverse(s * 0.)
+    array([1., 1., 1., 1., 1.])
     """
     power = np.mean(abs_square(signal), axis=-2)
 
@@ -1102,9 +1122,7 @@ def get_power_inverse(signal, psd_context=0):
         pass
     else:
         raise ValueError(psd_context)
-    eps = 1e-10 * np.max(power)
-    inverse_power = 1 / np.maximum(power, eps)
-    return inverse_power
+    return _stable_positive_inverse(power)
 
 
 def get_Psi(Y, t, taps):
