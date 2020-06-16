@@ -10,6 +10,14 @@ nara_wpe
     :target: https://travis-ci.org/fgnt/nara_wpe
     :alt: Travis Status
     
+.. image:: https://img.shields.io/pypi/v/nara-wpe.svg
+    :target: https://pypi.org/project/nara-wpe/
+    :alt: PyPI
+
+.. image:: https://img.shields.io/pypi/dm/nara-wpe.svg
+    :target: https://pypi.org/project/nara-wpe/
+    :alt: PyPI
+
 .. image:: https://img.shields.io/badge/license-MIT-blue.svg
     :target: https://raw.githubusercontent.com/fgnt/nara_wpe/master/LICENSE
     :alt: MIT License
