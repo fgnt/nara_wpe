@@ -1,108 +1,8 @@
+import functools
+
 import numpy as np
 import torch
-
-
-def torch_segment_axis(
-        x,
-        length,
-        shift,
-        axis=-1,
-        end='cut',  # in ['pad', 'cut', None]
-        pad_mode='constant',
-        pad_value=0,
-):
-
-    """Generate a new array that chops the given array along the given axis
-     into overlapping frames.
-
-    Args:
-        x: The array to segment
-        length: The length of each frame
-        shift: The number of array elements by which to step forward
-        axis: The axis to operate on; if None, act on the flattened array
-        end: What to do with the last frame, if the array is not evenly
-                divisible into pieces. Options are:
-                * 'cut'   Simply discard the extra values
-                * None    No end treatment. Only works when fits perfectly.
-                * 'pad'   Pad with a constant value
-        pad_mode:
-        pad_value: The value to use for end='pad'
-
-    Examples:
-        >>> import torch
-        >>> torch_segment_axis(torch.arange(10), 4, 2)
-        tensor([[0, 1, 2, 3],
-                [2, 3, 4, 5],
-                [4, 5, 6, 7],
-                [6, 7, 8, 9]])
-        >>> torch_segment_axis(torch.arange(5).reshape(5), 4, 1, axis=0)
-        tensor([[0, 1, 2, 3],
-                [1, 2, 3, 4]])
-        >>> torch_segment_axis(torch.arange(10).reshape(2, 5), 4, 1, axis=-1)
-        tensor([[[0, 1, 2, 3],
-                 [1, 2, 3, 4]],
-        <BLANKLINE>
-                [[5, 6, 7, 8],
-                 [6, 7, 8, 9]]])
-        >>> torch_segment_axis(torch.arange(10).reshape(5, 2).t(), 4, 1, axis=1)
-        tensor([[[0, 2, 4, 6],
-                 [2, 4, 6, 8]],
-        <BLANKLINE>
-                [[1, 3, 5, 7],
-                 [3, 5, 7, 9]]])
-        >>> torch_segment_axis(torch.flip(torch.arange(10), [0]), 4, 2)
-        tensor([[9, 8, 7, 6],
-                [7, 6, 5, 4],
-                [5, 4, 3, 2],
-                [3, 2, 1, 0]])
-        >>> a = torch.arange(5).reshape(5)
-        >>> b = torch_segment_axis(a, 4, 2, axis=0)
-        >>> a += 1  # a and b point to the same memory
-        >>> b
-        tensor([[1, 2, 3, 4]])
-
-    """
-    x: torch.tensor
-
-    axis = axis % x.ndimension()
-    elements = x.shape[axis]
-
-    if shift <= 0:
-        raise ValueError('Can not shift forward by less than 1 element.')
-
-    # Pad
-    if end == 'pad':
-        npad = np.zeros([x.ndim, 2], dtype=np.int)
-        pad_fn = functools.partial(
-            xp.pad, pad_width=npad, mode=pad_mode, constant_values=pad_value
-        )
-        if elements < length:
-            npad[axis, 1] = length - elements
-            x = pad_fn(x)
-        elif not shift == 1 and not (elements + shift - length) % shift == 0:
-            npad[axis, 1] = shift - ((elements + shift - length) % shift)
-            x = pad_fn(x)
-    elif end is None:
-        assert (elements + shift - length) % shift == 0, \
-            '{} = elements({}) + shift({}) - length({})) % shift({})' \
-            ''.format((elements + shift - length) % shift,
-                      elements, shift, length, shift)
-    elif end == 'cut':
-        pass
-    else:
-        raise ValueError(end)
-
-    shape = list(x.shape)
-    del shape[axis]
-    shape.insert(axis, (elements + shift - length) // shift)
-    shape.insert(axis + 1, length)
-
-    strides = list(x.stride())
-    strides.insert(axis, shift * strides[axis])
-
-    # raise AssertionError(strides, shape, x.shape, elements, shift, length, shift)
-
-    return x.clone().set_(x.storage(), x.storage_offset(), stride=strides, size=shape)
+from nara_wpe.wpe import segment_axis
 
 
 def torch_moveaxis(x: torch.tensor, source, destination):
@@ -115,6 +15,8 @@ def torch_moveaxis(x: torch.tensor, source, destination):
     >>> torch_moveaxis(torch.ones(2, 25), 0, 1).shape
     torch.Size([25, 2])
     >>> torch_moveaxis(torch.ones(2, 25), -2, -1).shape
+    torch.Size([25, 2])
+    >>> torch_moveaxis(torch.ones(2, 25) + 1j, -2, -1).shape
     torch.Size([25, 2])
     """
     ndim = x.ndimension()
@@ -205,7 +107,7 @@ def build_y_tilde(Y, taps, delay):
     Y_ = torch.flip(Y_, dims=[-1 % Y_.ndimension()])
     Y_ = Y_.contiguous()  # Y_ = np.ascontiguousarray(Y_)
     Y_ = torch.flip(Y_, dims=[-1 % Y_.ndimension()])
-    Y_ = torch_segment_axis(Y_, taps, 1, axis=-2)
+    Y_ = segment_axis(Y_, taps, 1, axis=-2)
 
     # Pytorch does not support negative strides.
     # Without this flip, the output of this function does not match the
