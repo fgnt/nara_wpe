@@ -19,7 +19,7 @@ def torch_moveaxis(x: torch.tensor, source, destination):
     >>> torch_moveaxis(torch.ones(2, 25) + 1j, -2, -1).shape
     torch.Size([25, 2])
     """
-    ndim = x.ndimension()
+    ndim = len(x.shape)
     permutation = list(range(ndim))
     source = permutation.pop(source)
     permutation.insert(destination % ndim, source)
