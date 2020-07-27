@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import torch_complex.functional
 from torch_complex.tensor import ComplexTensor
 from nara_wpe.torch_wpe import build_y_tilde as _build_y_tilde
 
@@ -179,8 +180,30 @@ def Tensor_to_ComplexTensor(t):
     return ComplexTensor(t.real, t.imag)
 
 
+def _solve(R, P, solver='torch_complex.solve'):
+    if isinstance(R, ComplexTensor):
+        if solver == 'torch.solve':
+            R = ComplexTensor_to_Tensor(R)
+            P = ComplexTensor_to_Tensor(P)
+
+            G, _ = torch.solve(P, R)
+            G = Tensor_to_ComplexTensor(G)
+        elif solver == 'torch.inverse':
+            R = ComplexTensor_to_Tensor(R)
+            G = Tensor_to_ComplexTensor(R.inverse()) @ P
+        elif solver == 'torch_complex.inverse':
+            G = R.inverse() @ P
+        elif solver == 'torch_complex.solve':
+            G, _ = torch_complex.functional.solve(P, R)
+        else:
+            raise ValueError(solver)
+    else:
+        G, _ = torch.solve(P, R)
+    return G
+
+
 def wpe_v6(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='full',
-           solver='torch_complex.inverse'):
+           solver='torch_complex.solve'):
     """
     This function in similar to nara_wpe.wpe.wpe_v6, but works for torch.
     In particular it is designed for a `torch_complex.tensor.ComplexTensor`.
@@ -242,25 +265,49 @@ def wpe_v6(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
         R = Y_tilde_inverse_power[s] @ hermite(Y_tilde[s])
         P = Y_tilde_inverse_power[s] @ hermite(Y[s])
         # G = _stable_solve(R, P)
-        if isinstance(R, ComplexTensor):
-            if solver == 'torch.solve':
-                R = ComplexTensor_to_Tensor(R)
-                P = ComplexTensor_to_Tensor(P)
-
-                G, _ = torch.solve(P, R)
-                G = Tensor_to_ComplexTensor(G)
-            elif solver == 'torch.inverse':
-                R = ComplexTensor_to_Tensor(R)
-                G = Tensor_to_ComplexTensor(R.inverse()) @ P
-            elif solver == 'torch_complex.inverse':
-                G = R.inverse() @ P
-            else:
-                raise ValueError(solver)
-        else:
-            G, _ = torch.solve(P, R)
+        G = _solve(R=R, P=P, solver=solver)
         X = Y - hermite(G) @ Y_tilde
 
     return X
 
+
+def wpe_step(Y, inverse_power, taps=10, delay=3,
+             statistics_mode='full',
+             solver='torch_complex.solve'):
+    """
+
+    Args:
+        Y: (..., channel, frames)
+        inverse_power:
+        taps:
+        delay:
+        statistics_mode:
+        solver:
+
+    Returns:
+
+    """
+
+    if statistics_mode == 'full':
+        s = Ellipsis
+    elif statistics_mode == 'valid':
+        s = (Ellipsis, slice(delay + taps - 1, None))
+    else:
+        raise ValueError(statistics_mode)
+
+    if isinstance(Y, np.ndarray):
+        Y = ComplexTensor(Y)
+        Y = Y.to(inverse_power.device)
+
+    Y_tilde = build_y_tilde(Y, taps, delay)
+    Y_tilde = Y_tilde.contiguous() + 1
+
+    Y_tilde_inverse_power = Y_tilde * inverse_power[..., None, :]
+    R = Y_tilde_inverse_power[s] @ hermite(Y_tilde[s])
+    P = Y_tilde_inverse_power[s] @ hermite(Y[s])
+    G = _solve(R=R, P=P, solver=solver)
+    X = Y - hermite(G) @ Y_tilde
+
+    return X
 
 wpe = wpe_v6
