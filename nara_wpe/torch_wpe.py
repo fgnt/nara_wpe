@@ -160,7 +160,7 @@ def get_power_inverse(signal, psd_context=0):
 
 
 def hermite(x):
-    return x.transpose(-2, -1)  #.conj()
+    return x.transpose(-2, -1).conj()
 
 
 def wpe_v6(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='full'):
