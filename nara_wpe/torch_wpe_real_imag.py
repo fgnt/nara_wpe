@@ -300,7 +300,7 @@ def wpe_step(Y, inverse_power, taps=10, delay=3,
         Y = Y.to(inverse_power.device)
 
     Y_tilde = build_y_tilde(Y, taps, delay)
-    Y_tilde = Y_tilde.contiguous() + 1
+    Y_tilde = Y_tilde  # .contiguous()
 
     Y_tilde_inverse_power = Y_tilde * inverse_power[..., None, :]
     R = Y_tilde_inverse_power[s] @ hermite(Y_tilde[s])
