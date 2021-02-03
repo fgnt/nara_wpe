@@ -31,8 +31,8 @@ st.setup(
     url='https://github.com/fgnt/nara_wpe',
 
     # Author details
-    author='Lukas Drude',
-    author_email='drude@nt.upb.de',
+    author='Department of Communications Engineering, Paderborn University',
+    author_email='sek@nt.upb.de',
 
     # Choose your license
     license='MIT',
