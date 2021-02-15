@@ -699,7 +699,7 @@ def online_wpe_step(
         input_buffer: Buffer of shape (taps+delay+1, F, D)
         power_estimate: Estimate for the current PSD
         inv_cov: Current estimate of R^-1
-        filter_taps: Current estimate of filter taps (F, taps*D, taps)
+        filter_taps: Current estimate of filter taps (F, taps*D, D)
         alpha (float): Smoothing factor
         taps (int): Number of filter taps
         delay (int): Delay in frames
