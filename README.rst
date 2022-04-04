@@ -39,7 +39,7 @@ Content
 
 - Iterative offline WPE/ block-online WPE/ recursive frame-online WPE
 - All algorithms implemented both in Numpy and in TensorFlow (works with version `1.12.0`).
-- Continuously tested with Python 2.7, 3.5 and 3.6.
+- Continuously tested with Python 3.6, 3.7, 3.8 and 3.9.
 - Automatically built documentation: `nara-wpe.readthedocs.io <https://nara-wpe.readthedocs.io/en/latest/>`_
 - Modular design to facilitate changes for further research
 

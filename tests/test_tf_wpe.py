@@ -2,13 +2,23 @@
 Run individual test file with i.e.
     python nara_wpe/tests/test_tf_wpe.py
 """
+import sys
+import pytest
 import numpy as np
 from nara_wpe import wpe
-from nara_wpe import tf_wpe
-import tensorflow as tf
+if sys.version_info < (3, 7):
+    from nara_wpe import tf_wpe
+    import tensorflow as tf
+else:
+    # Dummy tf
+    class tf:
+        class test:
+            class TestCase:
+                pass
 from nara_wpe.test_utils import retry
 
 
+@pytest.mark.skipif(sys.version_info >= (3, 7), reason="Python 3.7+ has no tensorflow==1.12. Help wanted for tensorflow 2 support.")
 class TestWPE(tf.test.TestCase):
     def setUp(self):
         np.random.seed(0)
@@ -241,4 +251,5 @@ class TestWPE(tf.test.TestCase):
 
 
 if __name__ == '__main__':
-    tf.test.main()
+    if sys.version_info < (3, 7):
+        tf.test.main()
