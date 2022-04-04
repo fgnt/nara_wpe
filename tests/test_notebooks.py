@@ -3,6 +3,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+import pytest
 
 import nbformat
 
@@ -33,28 +34,33 @@ def _notebook_run(path):
     return nb, errors
 
 
-@unittest.skipIf(sys.version_info < (3, 6, 0), 'Only with Python 3.6')
-class TestNotebooks(unittest.TestCase):
+root = project_root / 'examples'
 
-    def setUp(self):
-        self.root = project_root / 'examples'
 
-    def test_wpe_numpy_offline(self):
-        nb, errors = _notebook_run(self.root / 'WPE_Numpy_offline.ipynb')
-        assert errors == []
+@pytest.mark.skipif(sys.version_info >= (3, 6, 0), reason='Only with Python 3.6+')
+def test_wpe_numpy_offline(self):
+    nb, errors = _notebook_run(root / 'WPE_Numpy_offline.ipynb')
+    assert errors == []
 
-    def test_wpe_numpy_online(self):
-        nb, errors = _notebook_run(self.root / 'WPE_Numpy_online.ipynb')
-        assert errors == []
 
-    def test_wpe_tensorflow_offline(self):
-        nb, errors = _notebook_run(self.root / 'WPE_Tensorflow_offline.ipynb')
-        assert errors == []
+@pytest.mark.skipif(sys.version_info >= (3, 6, 0), reason='Only with Python 3.6+')
+def test_wpe_numpy_online(self):
+    nb, errors = _notebook_run(root / 'WPE_Numpy_online.ipynb')
+    assert errors == []
 
-    def test_wpe_tensorflow_online(self):
-        nb, errors = _notebook_run(self.root / 'WPE_Tensorflow_online.ipynb')
-        assert errors == []
 
-    # def test_NTT_wrapper(self):
-    #     nb, errors = _notebook_run(self.root / 'NTT_wrapper_offline.ipynb')
-    #     assert errors == []
+@pytest.mark.skipif(not((3, 6, 0) <= sys.version_info < (3, 7, 0)), reason='Only with Python 3.6')
+def test_wpe_tensorflow_offline():
+    nb, errors = _notebook_run(root / 'WPE_Tensorflow_offline.ipynb')
+    assert errors == []
+
+
+@pytest.mark.skipif(not((3, 6, 0) <= sys.version_info < (3, 7, 0)), reason='Only with Python 3.6')
+def test_wpe_tensorflow_online():
+    nb, errors = _notebook_run(root / 'WPE_Tensorflow_online.ipynb')
+    assert errors == []
+
+
+# def test_NTT_wrapper(self):
+#     nb, errors = _notebook_run(self.root / 'NTT_wrapper_offline.ipynb')
+#     assert errors == []

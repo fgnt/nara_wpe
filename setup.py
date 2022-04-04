@@ -83,7 +83,14 @@ st.setup(
     # $ pip install -e .[dev,test]
     extras_require={
         'dev': ['check-manifest'],
-        'test': ['coverage', 'jupyter', 'matplotlib'],
+        'test': [
+            'pytest',
+            'coverage',
+            'jupyter',
+            'matplotlib',
+            'scipy',
+            'tensorflow==1.12.0;python_version<"3.7"',  # Python 3.7 has no tensorflow==1.12.0
+        ],
     },
 
     # If there are data files included in your packages that need to be
