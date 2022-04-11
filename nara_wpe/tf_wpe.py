@@ -4,9 +4,8 @@ try:
 except ModuleNotFoundError:
     import warnings
     # For doctests, each file will be imported
-    warnings.warn_explicit(
+    warnings.warn(
         'Could not import tensorflow, hence tensorflow code in nara_wpe will fail.',
-        category=UserWarning,
     )
 
 
