@@ -23,6 +23,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install libsndfile1 sox
+          sudo apt-get install libzmq3-dev
 
       - name: Install nara_wpe
         run: |
