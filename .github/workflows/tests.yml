@@ -24,7 +24,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install libsndfile1 sox
           sudo apt-get install libzmq3-dev
-          pip install pyzmq
+          pip install numpy pyzmq  # pymatbridge needs numpy and pyzmq preinstalled (i.e. does not work to list in setup.py)
 
       - name: Install nara_wpe
         run: |
