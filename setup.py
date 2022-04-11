@@ -94,7 +94,7 @@ st.setup(
             'codecov',
             'pandas',
             'torch',
-            'pyzmq',  # Required to install pymatbridge
+            'zmq',  # Required to install pymatbridge
             'pymatbridge',
         ],
     },
