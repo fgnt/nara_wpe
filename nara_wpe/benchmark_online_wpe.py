@@ -1,11 +1,16 @@
+# ToDo: move this file to tests
+
+import sys
 from itertools import product
 
 import pandas as pd
-import tensorflow as tf
+if sys.version_info < (3, 7):
+    import tensorflow as tf
 
 from nara_wpe import tf_wpe
 
-benchmark = tf.test.Benchmark()
+if sys.version_info < (3, 7):
+    benchmark = tf.test.Benchmark()
 configs = []
 delay = 1
 
@@ -21,7 +26,7 @@ def config_iterator():
     )
 
 
-if __name__ == '__main__':
+if __name__ == '__main__' and sys.version_info < (3, 7):
     print('Generating configs...')
     for repetition, K, num_mics, frame_size, dtype, device in config_iterator():
         inv_cov_tm1 = tf.eye(
