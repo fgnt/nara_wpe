@@ -1,5 +1,13 @@
-import tensorflow as tf
-from tensorflow.contrib import signal as tf_signal
+try:
+    import tensorflow as tf
+    from tensorflow.contrib import signal as tf_signal
+except IndexError:
+    import warnings
+    # For doctests, each file will be imported
+    warnings.warn_explicit(
+        'Could not import tensorflow, hence tensorflow code in nara_wpe will fail.',
+        category=UserWarning,
+    )
 
 
 def _batch_wrapper(inner_function, signals, num_frames, time_axis=-1):
