@@ -1,7 +1,7 @@
 try:
     import tensorflow as tf
     from tensorflow.contrib import signal as tf_signal
-except IndexError:
+except ModuleNotFoundError:
     import warnings
     # For doctests, each file will be imported
     warnings.warn_explicit(
