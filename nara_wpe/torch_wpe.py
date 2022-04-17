@@ -120,7 +120,7 @@ def build_y_tilde(Y, taps, delay):
     Y_ = torch.flip(Y_, dims=[-1 % Y_.ndimension()])
     Y_ = Y_.contiguous()  # Y_ = np.ascontiguousarray(Y_)
     Y_ = torch.flip(Y_, dims=[-1 % Y_.ndimension()])
-    Y_ = torch_segment_axis(Y_, taps, 1, axis=-2)
+    Y_ = segment_axis(Y_, taps, 1, axis=-2)
 
     # Pytorch does not support negative strides.
     # Without this flip, the output of this function does not match the
