@@ -283,15 +283,15 @@ def get_filter_matrix_conj(
 def perform_filter_operation(Y, filter_matrix_conj, taps, delay):
     """
 
-    >>> D, T, taps, delay = 1, 10, 2, 1
-    >>> tf.enable_eager_execution()
-    >>> Y = tf.ones([D, T])
-    >>> filter_matrix_conj = tf.ones([taps, D, D])
-    >>> X = perform_filter_operation_v2(Y, filter_matrix_conj, taps, delay)
-    >>> X.shape
-    TensorShape([Dimension(1), Dimension(10)])
-    >>> X.numpy()
-    array([[ 1.,  0., -1., -1., -1., -1., -1., -1., -1., -1.]], dtype=float32)
+    # >>> D, T, taps, delay = 1, 10, 2, 1
+    # >>> tf.enable_eager_execution()
+    # >>> Y = tf.ones([D, T])
+    # >>> filter_matrix_conj = tf.ones([taps, D, D])
+    # >>> X = perform_filter_operation_v2(Y, filter_matrix_conj, taps, delay)
+    # >>> X.shape
+    # TensorShape([Dimension(1), Dimension(10)])
+    # >>> X.numpy()
+    # array([[ 1.,  0., -1., -1., -1., -1., -1., -1., -1., -1.]], dtype=float32)
     """
     dyn_shape = tf.shape(Y)
     T = dyn_shape[1]
