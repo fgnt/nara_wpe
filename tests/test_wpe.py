@@ -13,9 +13,9 @@ from nara_wpe.test_utils import retry
 class TestWPE(unittest.TestCase):
     def setUp(self):
         self.T = np.random.randint(100, 120)
-        self.D = np.random.randint(2, 8)
+        self.D = np.random.randint(2, 6)
         self.K = np.random.randint(3, 5)
-        self.delay = np.random.randint(0, 2)
+        self.delay = np.random.randint(1, 3)
         self.Y = np.random.normal(size=(self.D, self.T)) \
             + 1j * np.random.normal(size=(self.D, self.T))
 
