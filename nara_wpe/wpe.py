@@ -150,6 +150,11 @@ def segment_axis(
                 [2, 3, 4, 5],
                 [4, 5, 6, 7],
                 [6, 7, 8, 9]])
+        >>> segment_axis(torch.tensor(np.arange(10) + 1j), 4, 2)  # simple example
+        tensor([[0.+1.j, 1.+1.j, 2.+1.j, 3.+1.j],
+                [2.+1.j, 3.+1.j, 4.+1.j, 5.+1.j],
+                [4.+1.j, 5.+1.j, 6.+1.j, 7.+1.j],
+                [6.+1.j, 7.+1.j, 8.+1.j, 9.+1.j]], dtype=torch.complex128)
     """
     backend = {
         'numpy': 'numpy',
@@ -194,17 +199,17 @@ def segment_axis(
     # Pad
     if end == 'pad':
         if x.shape[axis] < length:
-            npad = np.zeros([ndim, 2], dtype=np.int)
+            npad = np.zeros([ndim, 2], dtype=int)
             npad[axis, 1] = length - x.shape[axis]
             x = xp.pad(x, pad_width=npad, mode=pad_mode, **pad_kwargs)
         elif shift != 1 and (x.shape[axis] + shift - length) % shift != 0:
-            npad = np.zeros([ndim, 2], dtype=np.int)
+            npad = np.zeros([ndim, 2], dtype=int)
             npad[axis, 1] = shift - ((x.shape[axis] + shift - length) % shift)
             x = xp.pad(x, pad_width=npad, mode=pad_mode, **pad_kwargs)
 
     elif end == 'conv_pad':
         assert shift == 1, shift
-        npad = np.zeros([ndim, 2], dtype=np.int)
+        npad = np.zeros([ndim, 2], dtype=int)
         npad[axis, :] = length - shift
         x = xp.pad(x, pad_width=npad, mode=pad_mode, **pad_kwargs)
     elif end is None:
@@ -320,7 +325,7 @@ def _stable_solve(A, B):
     >>> C1 = np.linalg.solve(A, B)
     Traceback (most recent call last):
     ...
-    numpy.linalg.linalg.LinAlgError: Singular matrix
+    numpy.linalg.LinAlgError: Singular matrix
     >>> C2, *_ = np.linalg.lstsq(A, B)
     >>> C3 = _stable_solve(A, B)
     >>> C4 = _lstsq(A, B)
@@ -333,7 +338,7 @@ def _stable_solve(A, B):
     >>> C2, *_ = np.linalg.lstsq(A, B)
     Traceback (most recent call last):
     ...
-    numpy.linalg.linalg.LinAlgError: 3-dimensional array given. Array must be two-dimensional
+    numpy.linalg.LinAlgError: 3-dimensional array given. Array must be two-dimensional
     >>> C3 = _stable_solve(A, B)
     >>> C4 = _lstsq(A, B)
     >>> np.testing.assert_allclose(C1, C3)
@@ -344,11 +349,11 @@ def _stable_solve(A, B):
     >>> C1 = np.linalg.solve(A, B)
     Traceback (most recent call last):
     ...
-    numpy.linalg.linalg.LinAlgError: Singular matrix
+    numpy.linalg.LinAlgError: Singular matrix
     >>> C2, *_ = np.linalg.lstsq(A, B)
     Traceback (most recent call last):
     ...
-    numpy.linalg.linalg.LinAlgError: 3-dimensional array given. Array must be two-dimensional
+    numpy.linalg.LinAlgError: 3-dimensional array given. Array must be two-dimensional
     >>> C3 = _stable_solve(A, B)
     >>> C4 = _lstsq(A, B)
     >>> np.testing.assert_allclose(C3, C4)
@@ -359,7 +364,7 @@ def _stable_solve(A, B):
     assert A.shape[-1] == B.shape[-2], (A.shape, B.shape)
     try:
         return np.linalg.solve(A, B)
-    except np.linalg.linalg.LinAlgError:
+    except np.linalg.LinAlgError:
         shape_A, shape_B = A.shape, B.shape
         assert shape_A[:-2] == shape_A[:-2]
         working_shape_A = get_working_shape(shape_A)
@@ -372,7 +377,7 @@ def _stable_solve(A, B):
             # lstsq is much slower, use it only when necessary
             try:
                 C[i] = np.linalg.solve(A[i], B[i])
-            except np.linalg.linalg.LinAlgError:
+            except np.linalg.LinAlgError:
                 C[i] = np.linalg.lstsq(A[i], B[i])[0]
         return C.reshape(*shape_B)
 
@@ -427,7 +432,7 @@ def build_y_tilde(Y, taps, delay):
     T = Y.shape[-1]
 
     def pad(x, axis=-1, pad_width=taps + delay - 1):
-        npad = np.zeros([x.ndim, 2], dtype=np.int)
+        npad = np.zeros([x.ndim, 2], dtype=int)
         npad[axis, 0] = pad_width
         x = np.pad(x,
                    pad_width=npad,
@@ -1039,7 +1044,7 @@ def get_power(signal, psd_context=0):
 
     power = np.mean(abs_square(signal), axis=-2)
 
-    if psd_context is not 0:
+    if psd_context != 0:
         if isinstance(psd_context, tuple):
             context = psd_context[0] + 1 + psd_context[1]
         else:

@@ -1,108 +1,9 @@
+import functools
+
 import numpy as np
 import torch
-
-
-def torch_segment_axis(
-        x,
-        length,
-        shift,
-        axis=-1,
-        end='cut',  # in ['pad', 'cut', None]
-        pad_mode='constant',
-        pad_value=0,
-):
-
-    """Generate a new array that chops the given array along the given axis
-     into overlapping frames.
-
-    Args:
-        x: The array to segment
-        length: The length of each frame
-        shift: The number of array elements by which to step forward
-        axis: The axis to operate on; if None, act on the flattened array
-        end: What to do with the last frame, if the array is not evenly
-                divisible into pieces. Options are:
-                * 'cut'   Simply discard the extra values
-                * None    No end treatment. Only works when fits perfectly.
-                * 'pad'   Pad with a constant value
-        pad_mode:
-        pad_value: The value to use for end='pad'
-
-    Examples:
-        >>> import torch
-        >>> torch_segment_axis(torch.arange(10), 4, 2)
-        tensor([[0, 1, 2, 3],
-                [2, 3, 4, 5],
-                [4, 5, 6, 7],
-                [6, 7, 8, 9]])
-        >>> torch_segment_axis(torch.arange(5).reshape(5), 4, 1, axis=0)
-        tensor([[0, 1, 2, 3],
-                [1, 2, 3, 4]])
-        >>> torch_segment_axis(torch.arange(10).reshape(2, 5), 4, 1, axis=-1)
-        tensor([[[0, 1, 2, 3],
-                 [1, 2, 3, 4]],
-        <BLANKLINE>
-                [[5, 6, 7, 8],
-                 [6, 7, 8, 9]]])
-        >>> torch_segment_axis(torch.arange(10).reshape(5, 2).t(), 4, 1, axis=1)
-        tensor([[[0, 2, 4, 6],
-                 [2, 4, 6, 8]],
-        <BLANKLINE>
-                [[1, 3, 5, 7],
-                 [3, 5, 7, 9]]])
-        >>> torch_segment_axis(torch.flip(torch.arange(10), [0]), 4, 2)
-        tensor([[9, 8, 7, 6],
-                [7, 6, 5, 4],
-                [5, 4, 3, 2],
-                [3, 2, 1, 0]])
-        >>> a = torch.arange(5).reshape(5)
-        >>> b = torch_segment_axis(a, 4, 2, axis=0)
-        >>> a += 1  # a and b point to the same memory
-        >>> b
-        tensor([[1, 2, 3, 4]])
-
-    """
-    x: torch.tensor
-
-    axis = axis % x.ndimension()
-    elements = x.shape[axis]
-
-    if shift <= 0:
-        raise ValueError('Can not shift forward by less than 1 element.')
-
-    # Pad
-    if end == 'pad':
-        npad = np.zeros([x.ndim, 2], dtype=np.int)
-        pad_fn = functools.partial(
-            xp.pad, pad_width=npad, mode=pad_mode, constant_values=pad_value
-        )
-        if elements < length:
-            npad[axis, 1] = length - elements
-            x = pad_fn(x)
-        elif not shift == 1 and not (elements + shift - length) % shift == 0:
-            npad[axis, 1] = shift - ((elements + shift - length) % shift)
-            x = pad_fn(x)
-    elif end is None:
-        assert (elements + shift - length) % shift == 0, \
-            '{} = elements({}) + shift({}) - length({})) % shift({})' \
-            ''.format((elements + shift - length) % shift,
-                      elements, shift, length, shift)
-    elif end == 'cut':
-        pass
-    else:
-        raise ValueError(end)
-
-    shape = list(x.shape)
-    del shape[axis]
-    shape.insert(axis, (elements + shift - length) // shift)
-    shape.insert(axis + 1, length)
-
-    strides = list(x.stride())
-    strides.insert(axis, shift * strides[axis])
-
-    # raise AssertionError(strides, shape, x.shape, elements, shift, length, shift)
-
-    return x.clone().set_(x.storage(), x.storage_offset(), stride=strides, size=shape)
+import torch.nn.functional
+from nara_wpe.wpe import segment_axis
 
 
 def torch_moveaxis(x: torch.tensor, source, destination):
@@ -116,8 +17,10 @@ def torch_moveaxis(x: torch.tensor, source, destination):
     torch.Size([25, 2])
     >>> torch_moveaxis(torch.ones(2, 25), -2, -1).shape
     torch.Size([25, 2])
+    >>> torch_moveaxis(torch.ones(2, 25) + 1j, -2, -1).shape
+    torch.Size([25, 2])
     """
-    ndim = x.ndimension()
+    ndim = len(x.shape)
     permutation = list(range(ndim))
     source = permutation.pop(source)
     permutation.insert(destination % ndim, source)
@@ -132,7 +35,8 @@ def build_y_tilde(Y, taps, delay):
         smaller than the memory consumprion of a contignous array,
 
     >>> T, D = 20, 2
-    >>> Y = torch.arange(start=1, end=T * D + 1).to(dtype=torch.complex128).reshape([T, D]).t()
+    >>> Y = torch.arange(start=1, end=T * D + 1).reshape([T, D]).t()
+    >>> # Y = torch.arange(start=1, end=T * D + 1).to(dtype=torch.complex128).reshape([T, D]).t()
     >>> print(Y.numpy())
     [[ 1  3  5  7  9 11 13 15 17 19 21 23 25 27 29 31 33 35 37 39]
      [ 2  4  6  8 10 12 14 16 18 20 22 24 26 28 30 32 34 36 38 40]]
@@ -154,8 +58,8 @@ def build_y_tilde(Y, taps, delay):
     torch.Size([8, 20]) (8, 20) (1, 2)
     >>> print('Pseudo size:', np.prod(Y_tilde.size()) * Y_tilde.element_size())
     Pseudo size: 1280
-    >>> print('Reak size:', Y_tilde.storage().size() * Y_tilde.storage().element_size())
-    Reak size: 368
+    >>> print('Real size:', Y_tilde.storage().size() * Y_tilde.storage().element_size())
+    Real size: 368
     >>> print(Y_tilde.numpy())
     [[ 0  0  0  1  3  5  7  9 11 13 15 17 19 21 23 25 27 29 31 33]
      [ 0  0  0  2  4  6  8 10 12 14 16 18 20 22 24 26 28 30 32 34]
@@ -165,6 +69,17 @@ def build_y_tilde(Y, taps, delay):
      [ 0  2  4  6  8 10 12 14 16 18 20 22 24 26 28 30 32 34 36 38]
      [ 1  3  5  7  9 11 13 15 17 19 21 23 25 27 29 31 33 35 37 39]
      [ 2  4  6  8 10 12 14 16 18 20 22 24 26 28 30 32 34 36 38 40]]
+
+    >>> print(Y_tilde.shape, Y_tilde.stride())
+    torch.Size([8, 20]) (1, 2)
+    >>> print(Y_tilde[::3].shape, Y_tilde[::3].stride())
+    torch.Size([3, 20]) (3, 2)
+    >>> print(Y_tilde[::3].shape, Y_tilde[::3].contiguous().stride())
+    torch.Size([3, 20]) (20, 1)
+    >>> print(Y_tilde[::3].numpy())
+    [[ 0  0  0  1  3  5  7  9 11 13 15 17 19 21 23 25 27 29 31 33]
+     [ 0  0  2  4  6  8 10 12 14 16 18 20 22 24 26 28 30 32 34 36]
+     [ 1  3  5  7  9 11 13 15 17 19 21 23 25 27 29 31 33 35 37 39]]
 
     The first columns are zero because of the delay.
 
@@ -205,7 +120,7 @@ def build_y_tilde(Y, taps, delay):
     Y_ = torch.flip(Y_, dims=[-1 % Y_.ndimension()])
     Y_ = Y_.contiguous()  # Y_ = np.ascontiguousarray(Y_)
     Y_ = torch.flip(Y_, dims=[-1 % Y_.ndimension()])
-    Y_ = torch_segment_axis(Y_, taps, 1, axis=-2)
+    Y_ = segment_axis(Y_, taps, 1, axis=-2)
 
     # Pytorch does not support negative strides.
     # Without this flip, the output of this function does not match the
@@ -227,12 +142,13 @@ def get_power_inverse(signal, psd_context=0):
     >>> s = 1 / torch.tensor([np.arange(1, 6).astype(np.complex128)]*3)
     >>> get_power_inverse(s).numpy()
     array([ 1.,  4.,  9., 16., 25.])
-    >>> get_power_inverse(s * 0 + 1, 1).numpy()
-    array([1., 1., 1., 1., 1.])
-    >>> get_power_inverse(s, 1).numpy()
-    array([ 1.6       ,  2.20408163,  7.08196721, 14.04421326, 19.51219512])
-    >>> get_power_inverse(s, np.inf).numpy()
-    array([3.41620801, 3.41620801, 3.41620801, 3.41620801, 3.41620801])
+
+    # >>> get_power_inverse(s * 0 + 1, 1).numpy()
+    # array([1., 1., 1., 1., 1.])
+    # >>> get_power_inverse(s, 1).numpy()
+    # array([ 1.6       ,  2.20408163,  7.08196721, 14.04421326, 19.51219512])
+    # >>> get_power_inverse(s, np.inf).numpy()
+    # array([3.41620801, 3.41620801, 3.41620801, 3.41620801, 3.41620801])
     """
     power = torch.mean(torch.abs(signal)**2, dim=-2)
 
@@ -257,8 +173,12 @@ def get_power_inverse(signal, psd_context=0):
     return inverse_power
 
 
+def transpose(x):
+    return x.transpose(-2, -1)
+
+
 def hermite(x):
-    return x.transpose(-2, -1)  #.conj()
+    return x.transpose(-2, -1).conj()
 
 
 def wpe_v6(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='full'):
@@ -267,9 +187,9 @@ def wpe_v6(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
     Applicable in for-loops.
 
     >>> T = np.random.randint(100, 120)
-    >>> D = np.random.randint(2, 8)
+    >>> D = np.random.randint(2, 6)
     >>> K = np.random.randint(3, 5)
-    >>> delay = np.random.randint(0, 2)
+    >>> delay = np.random.randint(1, 3)
     
     # Real test:
     >>> Y = np.random.normal(size=(D, T))
@@ -301,7 +221,7 @@ def wpe_v6(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
         R = torch.matmul(Y_tilde_inverse_power[s], hermite(Y_tilde[s]))
         P = torch.matmul(Y_tilde_inverse_power[s], hermite(Y[s]))
         # G = _stable_solve(R, P)
-        G, _ = torch.solve(P, R)
+        G = torch.linalg.solve(R, P)
         X = Y - torch.matmul(hermite(G), Y_tilde)
 
     return X

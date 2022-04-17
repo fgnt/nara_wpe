@@ -23,6 +23,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install libsndfile1 sox
+          sudo apt-get install libzmq3-dev
+          pip install numpy pyzmq  # pymatbridge needs numpy and pyzmq preinstalled (i.e. does not work to list in setup.py)
 
       - name: Install nara_wpe
         run: |
@@ -30,4 +32,4 @@ jobs:
 
       - name: Test with pytest
         run: |
-          pytest tests/
+          pytest "tests/" "nara_wpe/"
