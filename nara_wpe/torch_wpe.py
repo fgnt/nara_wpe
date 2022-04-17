@@ -187,9 +187,9 @@ def wpe_v6(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
     Applicable in for-loops.
 
     >>> T = np.random.randint(100, 120)
-    >>> D = np.random.randint(2, 8)
+    >>> D = np.random.randint(2, 6)
     >>> K = np.random.randint(3, 5)
-    >>> delay = np.random.randint(0, 2)
+    >>> delay = np.random.randint(1, 3)
     
     # Real test:
     >>> Y = np.random.normal(size=(D, T))
