@@ -199,17 +199,17 @@ def segment_axis(
     # Pad
     if end == 'pad':
         if x.shape[axis] < length:
-            npad = np.zeros([ndim, 2], dtype=np.int)
+            npad = np.zeros([ndim, 2], dtype=int)
             npad[axis, 1] = length - x.shape[axis]
             x = xp.pad(x, pad_width=npad, mode=pad_mode, **pad_kwargs)
         elif shift != 1 and (x.shape[axis] + shift - length) % shift != 0:
-            npad = np.zeros([ndim, 2], dtype=np.int)
+            npad = np.zeros([ndim, 2], dtype=int)
             npad[axis, 1] = shift - ((x.shape[axis] + shift - length) % shift)
             x = xp.pad(x, pad_width=npad, mode=pad_mode, **pad_kwargs)
 
     elif end == 'conv_pad':
         assert shift == 1, shift
-        npad = np.zeros([ndim, 2], dtype=np.int)
+        npad = np.zeros([ndim, 2], dtype=int)
         npad[axis, :] = length - shift
         x = xp.pad(x, pad_width=npad, mode=pad_mode, **pad_kwargs)
     elif end is None:
@@ -432,7 +432,7 @@ def build_y_tilde(Y, taps, delay):
     T = Y.shape[-1]
 
     def pad(x, axis=-1, pad_width=taps + delay - 1):
-        npad = np.zeros([x.ndim, 2], dtype=np.int)
+        npad = np.zeros([x.ndim, 2], dtype=int)
         npad[axis, 0] = pad_width
         x = np.pad(x,
                    pad_width=npad,
