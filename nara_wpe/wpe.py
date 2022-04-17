@@ -151,10 +151,10 @@ def segment_axis(
                 [4, 5, 6, 7],
                 [6, 7, 8, 9]])
         >>> segment_axis(torch.tensor(np.arange(10) + 1j), 4, 2)  # simple example
-        tensor([[(0.+1.j), (1.+1.j), (2.+1.j), (3.+1.j)],
-                [(2.+1.j), (3.+1.j), (4.+1.j), (5.+1.j)],
-                [(4.+1.j), (5.+1.j), (6.+1.j), (7.+1.j)],
-                [(6.+1.j), (7.+1.j), (8.+1.j), (9.+1.j)]], dtype=torch.complex128)
+        tensor([[0.+1.j, 1.+1.j, 2.+1.j, 3.+1.j],
+                [2.+1.j, 3.+1.j, 4.+1.j, 5.+1.j],
+                [4.+1.j, 5.+1.j, 6.+1.j, 7.+1.j],
+                [6.+1.j, 7.+1.j, 8.+1.j, 9.+1.j]], dtype=torch.complex128)
     """
     backend = {
         'numpy': 'numpy',
