@@ -173,8 +173,12 @@ def get_power_inverse(signal, psd_context=0):
     return inverse_power
 
 
+def transpose(x):
+    return x.transpose(-2, -1)
+
+
 def hermite(x):
-    return x.transpose(-2, -1)  #.conj()
+    return x.transpose(-2, -1).conj()
 
 
 def wpe_v6(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='full'):
@@ -217,7 +221,7 @@ def wpe_v6(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
         R = torch.matmul(Y_tilde_inverse_power[s], hermite(Y_tilde[s]))
         P = torch.matmul(Y_tilde_inverse_power[s], hermite(Y[s]))
         # G = _stable_solve(R, P)
-        G, _ = torch.solve(P, R)
+        G = torch.linalg.solve(R, P)
         X = Y - torch.matmul(hermite(G), Y_tilde)
 
     return X
