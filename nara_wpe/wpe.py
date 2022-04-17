@@ -325,7 +325,7 @@ def _stable_solve(A, B):
     >>> C1 = np.linalg.solve(A, B)
     Traceback (most recent call last):
     ...
-    numpy.linalg.linalg.LinAlgError: Singular matrix
+    numpy.linalg.LinAlgError: Singular matrix
     >>> C2, *_ = np.linalg.lstsq(A, B)
     >>> C3 = _stable_solve(A, B)
     >>> C4 = _lstsq(A, B)
@@ -338,7 +338,7 @@ def _stable_solve(A, B):
     >>> C2, *_ = np.linalg.lstsq(A, B)
     Traceback (most recent call last):
     ...
-    numpy.linalg.linalg.LinAlgError: 3-dimensional array given. Array must be two-dimensional
+    numpy.linalg.LinAlgError: 3-dimensional array given. Array must be two-dimensional
     >>> C3 = _stable_solve(A, B)
     >>> C4 = _lstsq(A, B)
     >>> np.testing.assert_allclose(C1, C3)
@@ -349,11 +349,11 @@ def _stable_solve(A, B):
     >>> C1 = np.linalg.solve(A, B)
     Traceback (most recent call last):
     ...
-    numpy.linalg.linalg.LinAlgError: Singular matrix
+    numpy.linalg.LinAlgError: Singular matrix
     >>> C2, *_ = np.linalg.lstsq(A, B)
     Traceback (most recent call last):
     ...
-    numpy.linalg.linalg.LinAlgError: 3-dimensional array given. Array must be two-dimensional
+    numpy.linalg.LinAlgError: 3-dimensional array given. Array must be two-dimensional
     >>> C3 = _stable_solve(A, B)
     >>> C4 = _lstsq(A, B)
     >>> np.testing.assert_allclose(C3, C4)
@@ -377,7 +377,7 @@ def _stable_solve(A, B):
             # lstsq is much slower, use it only when necessary
             try:
                 C[i] = np.linalg.solve(A[i], B[i])
-            except np.linalg.linalg.LinAlgError:
+            except np.linalg.LinAlgError:
                 C[i] = np.linalg.lstsq(A[i], B[i])[0]
         return C.reshape(*shape_B)
 
