@@ -17,8 +17,10 @@ def torch_moveaxis(x: torch.tensor, source, destination):
     torch.Size([25, 2])
     >>> torch_moveaxis(torch.ones(2, 25), -2, -1).shape
     torch.Size([25, 2])
+    >>> torch_moveaxis(torch.ones(2, 25) + 1j, -2, -1).shape
+    torch.Size([25, 2])
     """
-    ndim = x.ndimension()
+    ndim = len(x.shape)
     permutation = list(range(ndim))
     source = permutation.pop(source)
     permutation.insert(destination % ndim, source)
@@ -33,7 +35,8 @@ def build_y_tilde(Y, taps, delay):
         smaller than the memory consumprion of a contignous array,
 
     >>> T, D = 20, 2
-    >>> Y = torch.arange(start=1, end=T * D + 1).to(dtype=torch.complex128).reshape([T, D]).t()
+    >>> Y = torch.arange(start=1, end=T * D + 1).reshape([T, D]).t()
+    >>> # Y = torch.arange(start=1, end=T * D + 1).to(dtype=torch.complex128).reshape([T, D]).t()
     >>> print(Y.numpy())
     [[ 1  3  5  7  9 11 13 15 17 19 21 23 25 27 29 31 33 35 37 39]
      [ 2  4  6  8 10 12 14 16 18 20 22 24 26 28 30 32 34 36 38 40]]
@@ -55,8 +58,8 @@ def build_y_tilde(Y, taps, delay):
     torch.Size([8, 20]) (8, 20) (1, 2)
     >>> print('Pseudo size:', np.prod(Y_tilde.size()) * Y_tilde.element_size())
     Pseudo size: 1280
-    >>> print('Reak size:', Y_tilde.storage().size() * Y_tilde.storage().element_size())
-    Reak size: 368
+    >>> print('Real size:', Y_tilde.storage().size() * Y_tilde.storage().element_size())
+    Real size: 368
     >>> print(Y_tilde.numpy())
     [[ 0  0  0  1  3  5  7  9 11 13 15 17 19 21 23 25 27 29 31 33]
      [ 0  0  0  2  4  6  8 10 12 14 16 18 20 22 24 26 28 30 32 34]
@@ -66,6 +69,17 @@ def build_y_tilde(Y, taps, delay):
      [ 0  2  4  6  8 10 12 14 16 18 20 22 24 26 28 30 32 34 36 38]
      [ 1  3  5  7  9 11 13 15 17 19 21 23 25 27 29 31 33 35 37 39]
      [ 2  4  6  8 10 12 14 16 18 20 22 24 26 28 30 32 34 36 38 40]]
+
+    >>> print(Y_tilde.shape, Y_tilde.stride())
+    torch.Size([8, 20]) (1, 2)
+    >>> print(Y_tilde[::3].shape, Y_tilde[::3].stride())
+    torch.Size([3, 20]) (3, 2)
+    >>> print(Y_tilde[::3].shape, Y_tilde[::3].contiguous().stride())
+    torch.Size([3, 20]) (20, 1)
+    >>> print(Y_tilde[::3].numpy())
+    [[ 0  0  0  1  3  5  7  9 11 13 15 17 19 21 23 25 27 29 31 33]
+     [ 0  0  2  4  6  8 10 12 14 16 18 20 22 24 26 28 30 32 34 36]
+     [ 1  3  5  7  9 11 13 15 17 19 21 23 25 27 29 31 33 35 37 39]]
 
     The first columns are zero because of the delay.
 
@@ -128,12 +142,13 @@ def get_power_inverse(signal, psd_context=0):
     >>> s = 1 / torch.tensor([np.arange(1, 6).astype(np.complex128)]*3)
     >>> get_power_inverse(s).numpy()
     array([ 1.,  4.,  9., 16., 25.])
-    >>> get_power_inverse(s * 0 + 1, 1).numpy()
-    array([1., 1., 1., 1., 1.])
-    >>> get_power_inverse(s, 1).numpy()
-    array([ 1.6       ,  2.20408163,  7.08196721, 14.04421326, 19.51219512])
-    >>> get_power_inverse(s, np.inf).numpy()
-    array([3.41620801, 3.41620801, 3.41620801, 3.41620801, 3.41620801])
+
+    # >>> get_power_inverse(s * 0 + 1, 1).numpy()
+    # array([1., 1., 1., 1., 1.])
+    # >>> get_power_inverse(s, 1).numpy()
+    # array([ 1.6       ,  2.20408163,  7.08196721, 14.04421326, 19.51219512])
+    # >>> get_power_inverse(s, np.inf).numpy()
+    # array([3.41620801, 3.41620801, 3.41620801, 3.41620801, 3.41620801])
     """
     power = torch.mean(torch.abs(signal)**2, dim=-2)
 
