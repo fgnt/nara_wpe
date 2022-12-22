@@ -1006,7 +1006,7 @@ def window_mean(x, lr_context, axis=-1):
 
     def foo(x):
         cumsum = np.cumsum(np.pad(x, pad_width, mode='constant'), axis=axis)
-        return cumsum[first_slice] - cumsum[second_slice]
+        return cumsum[tuple(first_slice)] - cumsum[tuple(second_slice)]
 
     ones_shape = [1] * x.ndim
     ones_shape[axis] = x.shape[axis]
