@@ -158,7 +158,7 @@ def stft(
 
     # Pad with zeros to have enough samples for the window function to fade.
     if fading:
-        pad_width = np.zeros((time_signal.ndim, 2), dtype=np.int)
+        pad_width = np.zeros((time_signal.ndim, 2), dtype=int)
         pad_width[axis, :] = window_length - shift
         time_signal = np.pad(time_signal, pad_width, mode='constant')
 
