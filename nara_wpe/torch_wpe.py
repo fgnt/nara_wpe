@@ -89,7 +89,7 @@ def build_y_tilde(Y, taps, delay):
     T = Y.shape[-1]
 
     def pad(x, axis=-1, pad_width=taps + delay - 1):
-        npad = np.zeros([x.ndimension(), 2], dtype=np.int)
+        npad = np.zeros([x.ndimension(), 2], dtype=int)
         npad[axis, 0] = pad_width
         # x_np = (np.pad(x.numpy(),
         #            pad_width=npad,
