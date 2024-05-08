@@ -109,7 +109,7 @@ def stft(
         size,
         shift,
         axis=-1,
-        window=signal.blackman,
+        window=signal.windows.blackman,
         window_length=None,
         fading=True,
         pad=True,
@@ -327,7 +327,7 @@ def istft(
         stft_signal,
         size=1024,
         shift=256,
-        window=signal.blackman,
+        window=signal.windows.blackman,
         fading=True,
         window_length=None,
         symmetric_window=False,
@@ -411,7 +411,7 @@ def istft(
 
 
 def istft_single_channel(stft_signal, size=1024, shift=256,
-          window=signal.blackman, fading=True, window_length=None,
+          window=signal.windows.blackman, fading=True, window_length=None,
           use_amplitude_for_biorthogonal_window=False,
           disable_sythesis_window=False):
     """
