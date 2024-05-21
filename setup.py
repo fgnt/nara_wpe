@@ -97,6 +97,7 @@ st.setup(
             'cached_property',
             'pyzmq',  # Required to install pymatbridge
             'pymatbridge',
+            'zmq',
         ],
     },
 
