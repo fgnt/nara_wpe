@@ -95,9 +95,9 @@ st.setup(
             'pandas',
             'torch',
             'cached_property',
+            'zmq',
             'pyzmq',  # Required to install pymatbridge
             'pymatbridge',
-            'zmq',
         ],
     },
 
