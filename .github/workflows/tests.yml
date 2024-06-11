@@ -25,6 +25,9 @@ jobs:
           sudo apt-get install libsndfile1 sox
           sudo apt-get install libzmq3-dev
           pip install numpy pyzmq  # pymatbridge needs numpy and pyzmq preinstalled (i.e. does not work to list in setup.py)
+          # Install of current version of pymatbridge on pypi does not work, using the git-repository instead
+          pip install git+https://github.com/arokem/python-matlab-bridge.git@master
+          
 
       - name: Install nara_wpe
         run: |
