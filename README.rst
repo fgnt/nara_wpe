@@ -5,11 +5,11 @@ nara_wpe
 .. image:: https://readthedocs.org/projects/nara-wpe/badge/?version=latest
     :target: http://nara-wpe.readthedocs.io/en/latest/
     :alt: Documentation Status
-    
-.. image:: https://travis-ci.org/fgnt/nara_wpe.svg?branch=master
-    :target: https://travis-ci.org/fgnt/nara_wpe
-    :alt: Travis Status
-    
+
+.. image:: https://github.com/fgnt/nara_wpe/actions/workflows/tests.yml/badge.svg?branch=master
+   :target: https://github.com/fgnt/nara_wpe/actions/workflows/tests.yml
+   :alt: Tests
+
 .. image:: https://img.shields.io/pypi/v/nara-wpe.svg
     :target: https://pypi.org/project/nara-wpe/
     :alt: PyPI
@@ -21,7 +21,6 @@ nara_wpe
 .. image:: https://img.shields.io/badge/license-MIT-blue.svg
     :target: https://raw.githubusercontent.com/fgnt/nara_wpe/master/LICENSE
     :alt: MIT License
-
 
 Weighted Prediction Error for speech dereverberation
 ====================================================
@@ -94,6 +93,9 @@ Their result is, that the Nara-WPE implementation is as least as good as the NTT
 Development history
 ====================
 
-Since 2017-09-05 a TensorFlow implementation has been added to `nara_wpe`. It has been tested with a few test cases against the Numpy implementation.
+Since 2017-09-05 a TensorFlow implementation has been added to `nara_wpe`.
+It has been tested with a few test cases against the Numpy implementation.
 
-The first version of the Numpy implementation was written in June 2017 while Lukas Drude and Kateřina Žmolíková resided in Nara, Japan. The aim was to have a publicly available implementation of Takuya Yoshioka's 2012 paper.
+The first version of the Numpy implementation was written in June 2017 while
+Lukas Drude and Kateřina Žmolíková resided in Nara, Japan. The aim was to have
+a publicly available implementation of Takuya Yoshioka's 2012 paper.
