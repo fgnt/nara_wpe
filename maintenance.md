@@ -22,8 +22,8 @@ pip install --upgrade bump2version
 # rm -rf dist/*
 bump2version --verbose --tag patch  # major, minor or patch
 python setup.py sdist bdist_wheel
-git push
+twine upload --repository testpypi dist/*
 git push origin --tags
-twine upload --repository-url https://test.pypi.org/legacy/ dist/*
+git push
 twine upload dist/*
 ```
