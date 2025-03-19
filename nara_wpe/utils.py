@@ -450,7 +450,7 @@ def istft_single_channel(stft_signal, size=1024, shift=256,
     if disable_sythesis_window:
         window = np.ones_like(window)
 
-    time_signal = scipy.zeros(stft_signal.shape[0] * shift + size - shift)
+    time_signal = np.zeros(stft_signal.shape[0] * shift + size - shift)
 
     for j, i in enumerate(range(0, len(time_signal) - size + shift, shift)):
         time_signal[i:i + size] += window * np.real(irfft(stft_signal[j]))
