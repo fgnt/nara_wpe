@@ -360,11 +360,24 @@ def _stable_solve(A, B):
 
 
     """
+    backend = {
+        'numpy': 'numpy',
+        'torch': 'torch',
+    }[A.__class__.__module__]
+
+    if backend == 'numpy':
+        xp = np
+    elif backend == 'torch':
+        import torch
+        xp = torch
+    else:
+        raise Exception('Can not happen')
+
     assert A.shape[:-2] == B.shape[:-2], (A.shape, B.shape)
     assert A.shape[-1] == B.shape[-2], (A.shape, B.shape)
     try:
-        return np.linalg.solve(A, B)
-    except np.linalg.LinAlgError:
+        return xp.linalg.solve(A, B)
+    except xp.linalg.LinAlgError:
         shape_A, shape_B = A.shape, B.shape
         assert shape_A[:-2] == shape_A[:-2]
         working_shape_A = get_working_shape(shape_A)
@@ -372,13 +385,13 @@ def _stable_solve(A, B):
         A = A.reshape(working_shape_A)
         B = B.reshape(working_shape_B)
 
-        C = np.zeros_like(B)
+        C = xp.zeros_like(B)
         for i in range(working_shape_A[0]):
             # lstsq is much slower, use it only when necessary
             try:
-                C[i] = np.linalg.solve(A[i], B[i])
-            except np.linalg.LinAlgError:
-                C[i] = np.linalg.lstsq(A[i], B[i])[0]
+                C[i] = xp.linalg.solve(A[i], B[i])
+            except xp.linalg.LinAlgError:
+                C[i] = xp.linalg.lstsq(A[i], B[i])[0]
         return C.reshape(*shape_B)
 
 

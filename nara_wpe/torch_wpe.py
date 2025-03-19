@@ -3,7 +3,7 @@ import functools
 import numpy as np
 import torch
 import torch.nn.functional
-from nara_wpe.wpe import segment_axis
+from nara_wpe.wpe import segment_axis, _stable_solve
 
 
 def torch_moveaxis(x: torch.tensor, source, destination):
@@ -190,7 +190,7 @@ def wpe_v6(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
     >>> D = np.random.randint(2, 6)
     >>> K = np.random.randint(3, 5)
     >>> delay = np.random.randint(1, 3)
-    
+
     # Real test:
     >>> Y = np.random.normal(size=(D, T))
     >>> from nara_wpe import wpe as np_wpe
@@ -220,8 +220,7 @@ def wpe_v6(Y, taps=10, delay=3, iterations=3, psd_context=0, statistics_mode='fu
         Y_tilde_inverse_power = Y_tilde * inverse_power[..., None, :]
         R = torch.matmul(Y_tilde_inverse_power[s], hermite(Y_tilde[s]))
         P = torch.matmul(Y_tilde_inverse_power[s], hermite(Y[s]))
-        # G = _stable_solve(R, P)
-        G = torch.linalg.solve(R, P)
+        G = _stable_solve(R, P)
         X = Y - torch.matmul(hermite(G), Y_tilde)
 
     return X
